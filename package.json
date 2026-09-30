@@ -1,0 +1,30 @@
+{
+  "name": "madda-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MADDA ERP — Coffee Processing & Export Management System (Ancient Halo Coffee Export)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "shared:build": "npm run build -w @madda/shared",
+    "predev": "npm run shared:build",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @madda/api\" \"npm run dev -w @madda/web\"",
+    "prebuild": "npm run shared:build",
+    "build": "npm run build -w @madda/api && npm run build -w @madda/web",
+    "db:generate": "npm run db:generate -w @madda/api",
+    "db:migrate": "npm run db:migrate -w @madda/api",
+    "db:push": "npm run db:push -w @madda/api",
+    "db:seed": "npm run shared:build && npm run db:seed -w @madda/api",
+    "db:setup": "npm run shared:build && npm run db:push -w @madda/api && npm run db:seed -w @madda/api",
+    "db:demo": "npm run shared:build && npm run db:seed:demo -w @madda/api",
+    "lint": "npm run lint -w @madda/api && npm run lint -w @madda/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

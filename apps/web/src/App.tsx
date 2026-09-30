@@ -1,0 +1,88 @@
+import { lazy, Suspense } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/lib/auth';
+import { AppShell } from '@/components/AppShell';
+import { LoginPage } from '@/pages/Login';
+
+// Route-level code splitting keeps the initial phone load small.
+const named = (loader: () => Promise<any>, name: string) =>
+  lazy(() => loader().then((m) => ({ default: m[name] })));
+
+const DashboardPage = named(() => import('@/pages/Dashboard'), 'DashboardPage');
+const PurchasesPage = named(() => import('@/pages/Purchases'), 'PurchasesPage');
+const ProcessingPage = named(() => import('@/pages/Processing'), 'ProcessingPage');
+const InventoryPage = named(() => import('@/pages/Inventory'), 'InventoryPage');
+const StationsPage = named(() => import('@/pages/Stations'), 'StationsPage');
+const SuppliersPage = named(() => import('@/pages/Suppliers'), 'SuppliersPage');
+const UsersPage = named(() => import('@/pages/Users'), 'UsersPage');
+const SettingsPage = named(() => import('@/pages/Settings'), 'SettingsPage');
+
+const BuyersPage = named(() => import('@/pages/sales'), 'BuyersPage');
+const QuotationsPage = named(() => import('@/pages/sales'), 'QuotationsPage');
+const ProformasPage = named(() => import('@/pages/sales'), 'ProformasPage');
+const ContractsPage = named(() => import('@/pages/sales'), 'ContractsPage');
+const CommercialPage = named(() => import('@/pages/sales'), 'CommercialPage');
+const ShipmentsPage = named(() => import('@/pages/sales'), 'ShipmentsPage');
+const ProformaDetailPage = named(() => import('@/pages/sales-detail'), 'ProformaDetailPage');
+const CommercialDetailPage = named(() => import('@/pages/sales-detail'), 'CommercialDetailPage');
+const ShipmentDetailPage = named(() => import('@/pages/sales-detail'), 'ShipmentDetailPage');
+
+const PaymentsPage = named(() => import('@/pages/finance'), 'PaymentsPage');
+const ExpensesPage = named(() => import('@/pages/finance'), 'ExpensesPage');
+const ApprovalsPage = named(() => import('@/pages/approvals'), 'ApprovalsPage');
+const ReportsPage = named(() => import('@/pages/reports'), 'ReportsPage');
+
+const qc = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+});
+
+function Loading() {
+  return <div className="grid min-h-[40vh] place-items-center text-sm text-slate-400">Loading…</div>;
+}
+
+function Protected({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading)
+    return <div className="grid min-h-screen place-items-center text-sm text-slate-400">Loading…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  return <AppShell>{children}</AppShell>;
+}
+
+const P = (el: React.ReactNode) => <Protected><Suspense fallback={<Loading />}>{el}</Suspense></Protected>;
+
+export default function App() {
+  return (
+    <QueryClientProvider client={qc}>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={P(<DashboardPage />)} />
+            <Route path="/purchases" element={P(<PurchasesPage />)} />
+            <Route path="/processing" element={P(<ProcessingPage />)} />
+            <Route path="/inventory" element={P(<InventoryPage />)} />
+            <Route path="/stations" element={P(<StationsPage />)} />
+            <Route path="/suppliers" element={P(<SuppliersPage />)} />
+            <Route path="/buyers" element={P(<BuyersPage />)} />
+            <Route path="/quotations" element={P(<QuotationsPage />)} />
+            <Route path="/proformas" element={P(<ProformasPage />)} />
+            <Route path="/proformas/:id" element={P(<ProformaDetailPage />)} />
+            <Route path="/commercial" element={P(<CommercialPage />)} />
+            <Route path="/commercial/:id" element={P(<CommercialDetailPage />)} />
+            <Route path="/contracts" element={P(<ContractsPage />)} />
+            <Route path="/shipments" element={P(<ShipmentsPage />)} />
+            <Route path="/shipments/:id" element={P(<ShipmentDetailPage />)} />
+            <Route path="/payments" element={P(<PaymentsPage />)} />
+            <Route path="/expenses" element={P(<ExpensesPage />)} />
+            <Route path="/approvals" element={P(<ApprovalsPage />)} />
+            <Route path="/reports" element={P(<ReportsPage />)} />
+            <Route path="/users" element={P(<UsersPage />)} />
+            <Route path="/settings" element={P(<SettingsPage />)} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}

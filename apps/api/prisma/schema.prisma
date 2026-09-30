@@ -1,0 +1,622 @@
+// MADDA ERP — Prisma schema (Phase 1 core + sales scaffold)
+// Status/process/grade/etc. are Strings backed by the Lookup table so they stay configurable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity / system ─────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  phone        String?
+  language     String    @default("en")
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  roles      UserRole[]
+  stations   UserStation[]
+  auditLogs  AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id    String @id @default(cuid())
+  key   String @unique
+  label String
+
+  users UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model UserStation {
+  userId    String
+  stationId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station   Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stationId])
+  @@map("user_stations")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model Lookup {
+  id       String  @id @default(cuid())
+  type     String // process | grade | expense_category | payment_method | supplier_type | station_status | ...
+  code     String
+  nameEn   String
+  nameOm   String?
+  sort     Int     @default(0)
+  isActive Boolean @default(true)
+
+  @@unique([type, code])
+  @@map("lookups")
+}
+
+model Currency {
+  code    String  @id
+  symbol  String
+  labelEn String
+  labelOm String?
+  isBase  Boolean @default(false)
+
+  @@map("currencies")
+}
+
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  fromCode  String
+  toCode    String
+  rate      Decimal  @db.Decimal(18, 8)
+  effective DateTime @default(now())
+
+  @@index([fromCode, toCode, effective])
+  @@map("exchange_rates")
+}
+
+model NumberSequence {
+  id        String   @id @default(cuid())
+  key       String @unique // purchase | proforma | commercial | ...
+  prefix    String
+  includeYear Boolean @default(true)
+  padding   Int      @default(4)
+  reset     String   @default("yearly") // never | yearly | monthly
+  current   Int      @default(0)
+  periodTag String   @default("")
+  updatedAt DateTime @updatedAt
+
+  @@map("number_sequences")
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  entity     String
+  entityId   String
+  fileName   String
+  mimeType   String?
+  size       Int?
+  storageKey String
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("attachments")
+}
+
+// ───────────────────────────── Master data ─────────────────────────────
+
+model Station {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  name         String
+  region       String?
+  zone         String?
+  location     String?
+  manager      String?
+  capacityTons Decimal?  @db.Decimal(12, 2)
+  startDate    DateTime?
+  status       String    @default("Active")
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  users       UserStation[]
+  purchases   CherryPurchase[]
+  batches     ProcessingBatch[]
+  lots        Lot[]
+  expenses    Expense[]
+  payments    Payment[]
+
+  @@map("stations")
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  type      String   @default("Farmer")
+  phone     String?
+  location  String?
+  bankInfo  String?
+  status    String   @default("Active")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases CherryPurchase[]
+
+  @@map("suppliers")
+}
+
+model Buyer {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  country     String?
+  contactName String?
+  email       String?
+  phone       String?
+  incoterm    String   @default("FOB")
+  currency    String   @default("USD")
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotations         Quotation[]
+  proformas          ProformaInvoice[]
+  contracts          SalesContract[]
+  commercialInvoices CommercialInvoice[]
+
+  @@map("buyers")
+}
+
+// ───────────────────────────── Supply side ─────────────────────────────
+
+model CherryPurchase {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  date          DateTime
+  stationId     String
+  supplierId    String
+  receiptNo     String?
+  cherryKg      Decimal  @db.Decimal(14, 3)
+  pricePerKg    Decimal  @db.Decimal(14, 2)
+  totalAmount   Decimal  @db.Decimal(18, 2)
+  currency      String   @default("ETB")
+  paymentStatus String   @default("Pending")
+  paymentId     String?
+  harvestYear   String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  station  Station  @relation(fields: [stationId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@index([stationId, date])
+  @@map("cherry_purchases")
+}
+
+model ProcessingBatch {
+  id                String   @id @default(cuid())
+  code              String   @unique
+  date              DateTime
+  stationId         String
+  lotId             String?
+  process           String
+  cherryInputKg     Decimal  @db.Decimal(14, 3)
+  parchmentOutputKg Decimal? @db.Decimal(14, 3)
+  dryParchmentKg    Decimal? @db.Decimal(14, 3)
+  greenOutputKg     Decimal? @db.Decimal(14, 3)
+  moisturePct       Decimal? @db.Decimal(5, 2)
+  grade             String?
+  screenSize        String?
+  cuppingScore      Decimal? @db.Decimal(5, 2)
+  status            String   @default("Planned")
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  station Station @relation(fields: [stationId], references: [id])
+  lot     Lot?    @relation(fields: [lotId], references: [lotId])
+
+  @@index([stationId, date])
+  @@map("processing_batches")
+}
+
+model Lot {
+  lotId        String   @id // human-readable e.g. LOT-ST001-NAT-001
+  stationId    String
+  origin       String?
+  harvestYear  String?
+  process      String
+  grade        String?
+  screenSize   String?
+  cuppingScore Decimal? @db.Decimal(5, 2)
+  status       String   @default("Active") // Active | Exported | Closed
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  station  Station           @relation(fields: [stationId], references: [id])
+  batches  ProcessingBatch[]
+  inventory InventoryItem[]
+
+  @@map("lots")
+}
+
+model InventoryItem {
+  id          String   @id @default(cuid())
+  lotId       String
+  stationId   String
+  coffeeType  String?
+  process     String?
+  grade       String?
+  screenSize  String?
+  quantityKg  Decimal  @db.Decimal(14, 3) @default(0)
+  warehouse   String?
+  unitCost    Decimal  @db.Decimal(14, 2) @default(0)
+  currency    String   @default("ETB")
+  status      String   @default("Available")
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  lot       Lot                 @relation(fields: [lotId], references: [lotId])
+  movements InventoryMovement[]
+
+  @@unique([lotId, warehouse])
+  @@map("inventory_items")
+}
+
+model InventoryMovement {
+  id         String   @id @default(cuid())
+  itemId     String
+  direction  String // IN | OUT | ADJUST
+  quantityKg Decimal  @db.Decimal(14, 3)
+  unitCost   Decimal  @db.Decimal(14, 2) @default(0)
+  reference  String?
+  notes      String?
+  createdById String?
+  createdAt  DateTime @default(now())
+
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_movements")
+}
+
+// ───────────────────────────── Money ─────────────────────────────
+
+model Expense {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  date          DateTime
+  stationId     String
+  category      String
+  description   String
+  amount        Decimal  @db.Decimal(18, 2)
+  currency      String   @default("ETB")
+  paymentStatus String   @default("Pending")
+  paymentId     String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  station Station @relation(fields: [stationId], references: [id])
+
+  @@index([stationId, date])
+  @@map("expenses")
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  date        DateTime
+  stationId   String?
+  payee       String
+  type        String
+  referenceId String?
+  amount      Decimal  @db.Decimal(18, 2)
+  currency    String   @default("ETB")
+  method      String   @default("Cash")
+  status      String   @default("Pending")
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  station Station? @relation(fields: [stationId], references: [id])
+
+  @@index([stationId, date])
+  @@map("payments")
+}
+
+// ───────────────────────────── Sales / export scaffold ─────────────────────────────
+
+model Quotation {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  date      DateTime
+  buyerId   String
+  currency  String   @default("USD")
+  incoterm  String   @default("FOB")
+  validUntil DateTime?
+  status    String   @default("Draft") // Draft | Sent | Accepted | Expired | Cancelled
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  buyer Buyer             @relation(fields: [buyerId], references: [id])
+  lines QuotationLine[]
+
+  @@map("quotations")
+}
+
+model QuotationLine {
+  id            String  @id @default(cuid())
+  quotationId   String
+  lotId         String?
+  description   String
+  quantityKg    Decimal @db.Decimal(14, 3)
+  pricePerKg    Decimal @db.Decimal(14, 4)
+  amount        Decimal @db.Decimal(18, 2)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("quotation_lines")
+}
+
+model ProformaInvoice {
+  id         String   @id @default(cuid())
+  code       String   @unique // PRO-YYYY-####
+  date       DateTime
+  buyerId    String
+  quotationId String?
+  currency   String   @default("USD")
+  incoterm   String   @default("FOB")
+  portLoading String?
+  portDischarge String?
+  validity   DateTime?
+  paymentTerms String?
+  status     String   @default("Draft") // Draft | Issued | Sent | Accepted | Converted | Cancelled
+  referenceProformaId String? // when converted
+  notes      String?
+  createdById String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  buyer     Buyer              @relation(fields: [buyerId], references: [id])
+  lines     ProformaInvoiceLine[]
+  contract  SalesContract?
+  commercial CommercialInvoice?
+
+  @@map("proforma_invoices")
+}
+
+model ProformaInvoiceLine {
+  id           String  @id @default(cuid())
+  proformaId   String
+  lotId        String?
+  description  String
+  quantityKg   Decimal @db.Decimal(14, 3)
+  pricePerKg   Decimal @db.Decimal(14, 4)
+  amount       Decimal @db.Decimal(18, 2)
+
+  proforma ProformaInvoice @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+
+  @@map("proforma_invoice_lines")
+}
+
+model SalesContract {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  date         DateTime
+  buyerId      String
+  proformaId   String?  @unique
+  currency     String   @default("USD")
+  incoterm     String   @default("FOB")
+  amount       Decimal  @db.Decimal(18, 2)
+  eptaRef      String? // ECTA registration reference
+  signedAt     DateTime?
+  status       String   @default("Draft") // Draft | Signed | Registered | Completed | Cancelled
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  buyer    Buyer            @relation(fields: [buyerId], references: [id])
+  proforma ProformaInvoice? @relation(fields: [proformaId], references: [id])
+  shipment Shipment?
+
+  @@map("sales_contracts")
+}
+
+model CommercialInvoice {
+  id            String   @id @default(cuid())
+  code          String   @unique // keeps proforma reference
+  date          DateTime
+  buyerId       String
+  proformaId    String?  @unique
+  contractId    String?
+  currency      String   @default("USD")
+  fobPricePerKg Decimal? @db.Decimal(14, 4)
+  incoterm      String   @default("FOB")
+  hsCode        String?  @default("0901.11")
+  status        String   @default("Draft") // Draft | Issued | Sent | Paid | Cancelled
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  buyer    Buyer              @relation(fields: [buyerId], references: [id])
+  proforma ProformaInvoice?   @relation(fields: [proformaId], references: [id])
+  lines    CommercialInvoiceLine[]
+
+  @@map("commercial_invoices")
+}
+
+model CommercialInvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  lotId       String?
+  description String
+  quantityKg  Decimal @db.Decimal(14, 3)
+  pricePerKg  Decimal @db.Decimal(14, 4)
+  amount      Decimal @db.Decimal(18, 2)
+
+  invoice CommercialInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("commercial_invoice_lines")
+}
+
+model Shipment {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  trackingNo  String?
+  contractId  String?  @unique
+  date        DateTime?
+  mode        String   @default("Sea") // Sea | Air
+  port        String?  @default("Djibouti")
+  billOfLading String?
+  containerNo String?
+  receiver    String?
+  address     String?
+  contact     String?
+  itemDescription String?
+  note        String?
+  status      String   @default("Preparing") // Preparing | Docs Ready | Cleared | Shipped | Delivered
+  trackingStatus String @default("Received") // Received | In Transit | Delivered
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contract SalesContract? @relation(fields: [contractId], references: [id])
+  documents ShipmentDocument[]
+  events    ShipmentEvent[]
+
+  @@map("shipments")
+}
+
+model ShipmentEvent {
+  id         String   @id @default(cuid())
+  shipmentId String
+  status     String // Received | In Transit | Delivered | Cleared | Docs Ready
+  location   String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, createdAt])
+  @@map("shipment_events")
+}
+
+model ShipmentDocument {
+  id          String  @id @default(cuid())
+  shipmentId  String
+  docType     String // CLU quality, phytosanitary, ICO origin, chamber origin, packing list, B/L, bank permit, EUDR
+  status      String  @default("Pending") // Pending | Ready | Submitted
+  reference   String?
+  attachmentId String?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@map("shipment_documents")
+}
+
+// ───────────────────────────── Workflow support ─────────────────────────────
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  template  String?
+  entity    String?
+  entityId  String?
+  status    String   @default("Sent") // Sent | Failed | Queued
+  provider  String?
+  error     String?
+  createdById String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("email_logs")
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  entity    String // ProformaInvoice | CommercialInvoice | Shipment | SalesContract | ...
+  entityId  String
+  type      String // status | email | note | created
+  message   String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId, createdAt])
+  @@map("activities")
+}
+
+model Approval {
+  id            String   @id @default(cuid())
+  entity        String // CherryPurchase | Expense | Payment
+  entityId      String
+  code          String?
+  summary       String?
+  amount        Decimal? @db.Decimal(18, 2)
+  currency      String   @default("ETB")
+  status        String   @default("Pending") // Pending | Approved | Rejected
+  requestedById String?
+  decidedById   String?
+  note          String?
+  createdAt     DateTime @default(now())
+  decidedAt     DateTime?
+
+  @@index([entity, entityId])
+  @@index([status])
+  @@map("approvals")
+}

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MADDA — Coffee Processing & Export ERP</title>
+<style>
+  @page { size: A4; margin: 17mm 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Liberation Sans", sans-serif;
+    color: #23281f;
+    font-size: 10.6pt;
+    line-height: 1.62;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+
+  /* header */
+  .doc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 9px; border-bottom: 1px solid #e6e8e3; margin-bottom: 34px;
+  }
+  .lockup { display: flex; align-items: center; gap: 8px; }
+  .mark {
+    width: 20px; height: 20px; border-radius: 6px; background: #2a3f26; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+  }
+  .lockup .name { font-size: 10pt; font-weight: 600; letter-spacing: .01em; }
+  .doc-head .date { font-size: 9pt; color: #8b918a; }
+
+  .eyebrow { font-size: 8.5pt; letter-spacing: .14em; text-transform: uppercase; color: #8b918a; margin-bottom: 10px; }
+  h1 { font-size: 30pt; line-height: 1.08; letter-spacing: -.025em; font-weight: 700; margin: 0 0 20px; color: #1b211a; }
+  h2 { font-size: 15pt; letter-spacing: -.01em; font-weight: 700; margin: 30px 0 10px; color: #1b211a; }
+  h3 { font-size: 11pt; font-weight: 700; margin: 18px 0 4px; color: #2a3f26; }
+  p { margin: 0 0 12px; color: #41473f; }
+  .lead { font-size: 12pt; color: #2b302a; }
+  ul { margin: 6px 0 14px; padding-left: 17px; }
+  li { margin-bottom: 5px; color: #41473f; }
+  strong { color: #1b211a; }
+  .copper { color: #ad7846; }
+  .green { color: #2a3f26; }
+  .muted { color: #8b918a; }
+
+  /* process stepper */
+  .steps { display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin: 26px 0 8px; }
+  .step { flex: 1; text-align: center; position: relative; }
+  .step .dot {
+    width: 30px; height: 30px; border: 1.4px solid #cfd5cb; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; margin: 0 auto 9px;
+    font-size: 9pt; color: #6b7169; background: #fff; position: relative; z-index: 2;
+  }
+  .step.active .dot { background: #c08a5a; border-color: #c08a5a; color: #fff; }
+  .step .lbl { font-size: 7.6pt; letter-spacing: .07em; text-transform: uppercase; color: #6b7169; }
+  .step.active .lbl { color: #ad7846; font-weight: 700; }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; top: 15px; left: 50%; width: 100%;
+    height: 1.4px; background: #dfe3dc; z-index: 1;
+  }
+  .stepline { position: relative; }
+
+  /* pipeline cards */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 30px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .card {
+    border: 1px solid #e6e8e3; border-radius: 12px; padding: 14px 16px; background: #fbfcfa;
+  }
+  .card h3 { margin-top: 0; }
+  .card p { margin-bottom: 0; font-size: 9.8pt; }
+
+  .pipeline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .pill {
+    border: 1px solid #d8ddd4; border-radius: 999px; padding: 6px 13px;
+    font-size: 9pt; color: #2a3f26; background: #fff; white-space: nowrap;
+  }
+  .pill.hot { background: #2a3f26; border-color: #2a3f26; color: #fff; }
+  .arrow { color: #b9bfb6; font-size: 11pt; }
+
+  /* table */
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 7px 8px; font-size: 9.5pt; border-bottom: 1px solid #eceee9; vertical-align: top; }
+  th { font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #8b918a; font-weight: 600; }
+  td strong { color: #1b211a; }
+
+  /* venn */
+  .venn { text-align: center; margin: 22px 0 6px; }
+  .foot { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e8e3; font-size: 8.5pt; color: #8b918a; }
+  .kicker { font-size: 8.5pt; letter-spacing: .14em; text-transform: uppercase; color: #ad7846; margin-bottom: 8px; }
+  .quote { font-size: 13pt; line-height: 1.5; color: #1b211a; letter-spacing: -.01em; margin: 8px 0 18px; }
+  .big { font-size: 46pt; font-weight: 700; letter-spacing: -.03em; color: #1b211a; line-height: 1; }
+  .smallstat { font-size: 9pt; color: #8b918a; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ─────────────── PAGE 1 ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">September 2026</div>
+  </div>
+
+  <div class="eyebrow">Coffee processing &amp; export management</div>
+  <h1>From cherry to shipment,<br/>in one system.</h1>
+
+  <p class="lead">MADDA is an ERP built specifically for Ethiopian coffee exporters. It follows a lot of coffee through every hand it touches — from the farmer at the washing station, through processing and the warehouse, into a proforma invoice, onto a container ship, and finally into the bank. Everything that today lives in one fragile spreadsheet becomes a secure, multi-user, offline-ready system.</p>
+
+  <h2>The problem with the spreadsheet</h2>
+  <p>Today the whole operation is tracked in a single Excel workbook: cherry purchases, processing batches, inventory, sales and payments. It works — until it doesn't. One mistyped ID breaks traceability. Anyone with the file can edit anything. There is no history of who changed what. And when two people fill it in at once, one of them loses their work.</p>
+
+  <div class="grid3" style="margin-top:18px">
+    <div class="card"><h3>No access control</h3><p>Every user sees and edits every cell. No roles, no audit trail.</p></div>
+    <div class="card"><h3>Manual traceability</h3><p>Lot IDs are typed by hand. A single error severs the farm-to-buyer chain.</p></div>
+    <div class="card"><h3>No documents</h3><p>Proforma and commercial invoices are made outside the system, with no numbering rules.</p></div>
+  </div>
+
+  <p style="margin-top:20px"><strong>MADDA replaces it with one source of truth</strong> — role-based, auditable, mobile-first, and designed to keep working in places with no internet.</p>
+</section>
+
+<!-- ─────────────── PAGE 2 ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">The workflow</div>
+  </div>
+
+  <div class="eyebrow">01 — The lifecycle</div>
+  <h2 style="margin-top:0">One documented path from sourcing to settlement</h2>
+  <p>Every step below is a module in the system. Data flows automatically from one to the next — a purchase becomes a processing batch, which becomes a lot, which becomes inventory, which becomes a sale.</p>
+
+  <div class="steps">
+    <div class="step active"><div class="dot">01</div><div class="lbl">Sourcing</div></div>
+    <div class="step"><div class="dot">02</div><div class="lbl">Purchasing</div></div>
+    <div class="step"><div class="dot">03</div><div class="lbl">Processing</div></div>
+    <div class="step"><div class="dot">04</div><div class="lbl">Inventory</div></div>
+    <div class="step"><div class="dot">05</div><div class="lbl">Sales</div></div>
+    <div class="step"><div class="dot">06</div><div class="lbl">Export docs</div></div>
+    <div class="step"><div class="dot">07</div><div class="lbl">Shipment</div></div>
+    <div class="step"><div class="dot">08</div><div class="lbl">Payment</div></div>
+  </div>
+
+  <div class="grid2" style="margin-top:34px">
+    <div>
+      <h3>01 · Sourcing &amp; suppliers</h3>
+      <p>Farmer, cooperative and collector profiles with contact, location and bank details. Buyers get their own customer profile.</p>
+    </div>
+    <div>
+      <h3>02 · Cherry purchasing</h3>
+      <p>Each delivery is recorded at the station: supplier, weight in KG, price per KG, receipt number, total and payment status. The system prints a receipt and numbers it automatically.</p>
+    </div>
+    <div>
+      <h3>03 · Processing</h3>
+      <p>Cherry is processed into parchment, dry parchment and green bean. MADDA records moisture, grade, screen size and cupping score, calculates the <strong>yield %</strong> automatically, and creates a traceable <span class="copper">Lot ID</span>.</p>
+    </div>
+    <div>
+      <h3>04 · Inventory &amp; traceability</h3>
+      <p>Green coffee enters inventory per lot and warehouse with unit cost and valuation. The full chain — purchase → batch → lot → inventory → sale — is preserved, so any bag can be traced back to the farm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── PAGE 3 ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">The workflow</div>
+  </div>
+
+  <div class="eyebrow">02 — Selling, shipping &amp; money</div>
+  <h2 style="margin-top:0">From a first quotation to money in the bank</h2>
+
+  <h3>05 · Sales &amp; export — the document pipeline</h3>
+  <p>This is where MADDA replaces email threads and ad-hoc invoices with a controlled, numbered pipeline. A quotation becomes a <strong>proforma invoice</strong>; when the buyer responds, the proforma moves forward step by step and is <strong>converted into a commercial invoice that keeps its reference number</strong>.</p>
+
+  <div class="pipeline">
+    <span class="pill">Quotation</span><span class="arrow">→</span>
+    <span class="pill">Proforma invoice</span><span class="arrow">→</span>
+    <span class="pill">Buyer responds</span><span class="arrow">→</span>
+    <span class="pill hot">Commercial invoice</span><span class="arrow">→</span>
+    <span class="pill">Sales contract</span><span class="arrow">→</span>
+    <span class="pill">Packing list · B/L · certificates</span>
+  </div>
+  <p class="muted" style="font-size:9pt">Each document keeps its own number series (PRO-2026-0001, COM-2026-0001) and an activity history showing every status change and every email sent to the buyer.</p>
+
+  <div class="grid2" style="margin-top:22px">
+    <div>
+      <h3>06 · Shipping &amp; tracking</h3>
+      <p>Every consignment gets a tracking ID and a simple timeline: <strong>Received → In Transit → Delivered</strong>, updated from the phone. A built-in checklist tracks the full export document pack — CLU quality certificate, phytosanitary, ICO and chamber certificates of origin, bill of lading, bank permit, insurance and more.</p>
+    </div>
+    <div>
+      <h3>07 · Contracts</h3>
+      <p>Sales contracts record Incoterms, value, currency and the ECTA registration reference, linked to the proforma and the shipment.</p>
+    </div>
+    <div>
+      <h3>08 · Finance</h3>
+      <p>Purchases, expenses and payments in multiple currencies (ETB, USD, EUR, GBP) with stored exchange rates. Accounts-payable and accounts-receivable ageing show who is owed and who owes. Profitability can be viewed by station, lot and buyer.</p>
+    </div>
+    <div>
+      <h3>Approvals</h3>
+      <p>Off by default. When enabled, purchases, expenses or payments above a threshold raise an approval request that appears in a queue — with a full decision trail.</p>
+    </div>
+  </div>
+
+  <h3>Reports &amp; the executive dashboard</h3>
+  <p>The CEO dashboard shows live figures with no spreadsheet formulas: active stations, cherry purchased, green output, inventory, purchase cost, expenses, sales revenue and gross profit — plus station-level performance, expense breakdowns by category, and green output by process and grade.</p>
+</section>
+
+<!-- ─────────────── PAGE 4 ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">Built for the field</div>
+  </div>
+
+  <div class="eyebrow">03 — Where it runs</div>
+  <h2 style="margin-top:0">Works offline. Speaks Afaan Oromoo.</h2>
+  <p>Washing stations often have no internet. MADDA is a phone-first application that keeps working without a connection: staff record a full day of deliveries, batches and expenses on the device, and everything uploads automatically the moment connectivity returns.</p>
+
+  <div class="venn">
+    <svg width="470" height="230" viewBox="0 0 470 230" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="0" y2="7" stroke="#c08a5a" stroke-width="1" opacity="0.55"/>
+        </pattern>
+      </defs>
+      <circle cx="185" cy="118" r="104" fill="#ffffff" stroke="#cfd5cb" stroke-width="1.4"/>
+      <circle cx="285" cy="118" r="104" fill="#ffffff" stroke="#cfd5cb" stroke-width="1.4"/>
+      <clipPath id="c1"><circle cx="185" cy="118" r="104"/></clipPath>
+      <g clip-path="url(#c1)"><circle cx="285" cy="118" r="104" fill="url(#hatch)"/></g>
+      <text x="120" y="122" font-size="12" fill="#6b7169" text-anchor="middle" font-family="Helvetica, Arial">Offline</text>
+      <text x="120" y="138" font-size="9" fill="#9aa096" text-anchor="middle" font-family="Helvetica, Arial">no connection</text>
+      <text x="352" y="122" font-size="12" fill="#6b7169" text-anchor="middle" font-family="Helvetica, Arial">Online</text>
+      <text x="352" y="138" font-size="9" fill="#9aa096" text-anchor="middle" font-family="Helvetica, Arial">LAN / cloud</text>
+      <text x="235" y="122" font-size="10" fill="#ad7846" text-anchor="middle" font-family="Helvetica, Arial" font-weight="bold">Sync</text>
+    </svg>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <div>
+      <h3>Phone-first design</h3>
+      <p>Built for a medium phone screen. Tables become readable cards, navigation becomes a bottom bar, and every action is reachable with a thumb.</p>
+    </div>
+    <div>
+      <h3>Two languages</h3>
+      <p>The entire interface is available in <strong>English</strong> and <strong>Afaan Oromoo</strong>, with reference data (processes, grades, categories) translated too.</p>
+    </div>
+    <div>
+      <h3>Email built in</h3>
+      <p>Proforma and commercial invoices can be emailed to the buyer from inside the system, and every sent email is logged on the record so you can see exactly what was sent and when.</p>
+    </div>
+    <div>
+      <h3>Audit &amp; history</h3>
+      <p>Every change is recorded — who, what, when. Nothing is hard-deleted. Full history on every invoice, shipment and customer.</p>
+    </div>
+  </div>
+
+
+</section>
+
+<!-- ─────────────── PAGE 5 ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">Roles &amp; technology</div>
+  </div>
+
+  <div class="eyebrow">04 — Who uses it</div>
+  <h2 style="margin-top:0">Everyone sees exactly what they should</h2>
+  <p>Access is role-based and deny-by-default. A warehouse officer can update stock but cannot see prices or create purchases. A station manager works only with their own station. The CEO sees everything.</p>
+
+  <table>
+    <thead><tr><th>Role</th><th>What they do in MADDA</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CEO / Owner</strong></td><td>Full visibility, executive dashboard, high-value approvals.</td></tr>
+      <tr><td><strong>General Manager</strong></td><td>Operational oversight, approvals, all reports.</td></tr>
+      <tr><td><strong>Finance Manager / Accountant</strong></td><td>Payments, expenses, AR/AP ageing, currency, profitability.</td></tr>
+      <tr><td><strong>Sales / Export Manager</strong></td><td>Buyers, quotations, proforma and commercial invoices, contracts.</td></tr>
+      <tr><td><strong>Export Documentation Officer</strong></td><td>Export document checklist, certificates, customs and bank paperwork.</td></tr>
+      <tr><td><strong>Procurement Manager</strong></td><td>Suppliers, cherry purchase approvals and pricing.</td></tr>
+      <tr><td><strong>Station Manager</strong></td><td>Runs a station: cherry intake, processing, local expenses.</td></tr>
+      <tr><td><strong>Cherry Receiver</strong></td><td>Registers deliveries, weighs, records the farmer, prints a receipt.</td></tr>
+      <tr><td><strong>Processing Supervisor</strong></td><td>Records processing batches and conversions.</td></tr>
+      <tr><td><strong>Quality / Cupping Officer</strong></td><td>Grades, moisture, cupping scores and quality data.</td></tr>
+      <tr><td><strong>Warehouse Officer</strong></td><td>Stock in/out, locations, counts and lot status.</td></tr>
+      <tr><td><strong>Logistics Officer</strong></td><td>Shipments, tracking, containers and transport status.</td></tr>
+      <tr><td><strong>Auditor</strong></td><td>Read-only access to every record and the audit trail.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="eyebrow" style="margin-top:30px">05 — Under the hood</div>
+  <h2 style="margin-top:0">Modern, local-first, and yours to host</h2>
+  <div class="grid2">
+    <div>
+      <p><strong>Backend &amp; data.</strong> A Node.js API with a PostgreSQL database — the same technology used by banks and logistics companies. The data model covers the full coffee chain, not just the dashboard.</p>
+      <p><strong>Frontend.</strong> A React application installed on a phone like an app (PWA), with local storage so it works offline and syncs in the background.</p>
+    </div>
+    <div>
+      <p><strong>Deployment.</strong> Runs entirely on a local machine or office server today, with no cloud dependency. It can move to a hosted server later without changing how people use it.</p>
+      <p><strong>Extensible.</strong> Currency, numbering rules, approval thresholds and reference lists are all configurable in settings — no code changes needed.</p>
+    </div>
+  </div>
+
+
+</section>
+
+<!-- ─────────────── PAGE 6 (closing) ─────────────── -->
+<section class="page">
+  <div class="doc-head">
+    <div class="lockup"><span class="mark">M</span><span class="name">MADDA</span></div>
+    <div class="date">Why it matters</div>
+  </div>
+
+  <div class="kicker">The outcome</div>
+  <div class="quote">One system that runs the whole export business — and never loses a bag of coffee along the way.</div>
+
+  <div class="grid2" style="margin-top:6px">
+    <div class="card"><h3>Traceability buyers trust</h3><p>Every lot carries its full story from farmer to container — increasingly a requirement for international buyers and export markets.</p></div>
+    <div class="card"><h3>No more spreadsheet risk</h3><p>Role-based access, full audit trail and no lost edits. The business stops depending on one file and one person.</p></div>
+    <div class="card"><h3>Faster, cleaner export paperwork</h3><p>Numbered proforma and commercial invoices, a document checklist per shipment, and emails logged automatically.</p></div>
+    <div class="card"><h3>Decisions from live numbers</h3><p>Real-time dashboard and reports instead of formulas — cost, yield, revenue and profit by station, lot and buyer.</p></div>
+    <div class="card"><h3>Built for the reality of the field</h3><p>Offline-first on phones, in Afaan Oromoo and English, so the people at the washing station can actually use it.</p></div>
+    <div class="card"><h3>Ready to grow</h3><p>A solid data foundation for future needs — certifications, full accounting, EUDR geolocation, market-price tracking.</p></div>
+  </div>
+
+  <div style="margin-top:52px">
+    <div class="big">MADDA</div>
+    <p class="muted" style="margin-top:8px">Coffee Processing &amp; Export ERP — built for Ancient Halo Coffee Export.</p>
+  </div>
+
+  <div class="foot">MADDA ERP · Ancient Halo Coffee Export · September 2026 · Confidential</div>
+</section>
+
+</body>
+</html>
