@@ -112,7 +112,7 @@ function KpiCard({
 
 export function DashboardPage() {
   const { t } = useTranslation();
-  const [rangeKey, setRangeKey] = useState('90');
+  const [rangeKey, setRangeKey] = useState('30');
   const [stationId, setStationId] = useState('');
   const [marketRange, setMarketRange] = useState('3mo');
 
