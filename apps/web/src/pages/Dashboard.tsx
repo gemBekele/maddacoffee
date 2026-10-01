@@ -8,11 +8,7 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   CartesianGrid,
-  Legend,
   AreaChart,
   Area,
 } from 'recharts';
@@ -31,10 +27,7 @@ import {
   Wallet,
   Receipt,
   RefreshCw,
-  Clock,
   FileCheck,
-  Layers,
-  CheckCircle2,
 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, StatusPill } from '@/components/ui';
@@ -44,7 +37,6 @@ import { api } from '@/lib/api';
 import { exportRows, printPage } from '@/lib/export';
 import { formatKg, formatMoney } from '@madda/shared';
 
-const PIE_COLORS = ['#2a3f26', '#c08a5a', '#4c6b46', '#ad7846', '#6f8f68', '#dfae79', '#9fb699', '#8f5f38', '#35502f'];
 
 const RANGES = [
   { key: '30', label: '1M', days: 30, full: 'last 30 days' },
@@ -115,42 +107,6 @@ function KpiCard({
         )}
       </div>
     </Card>
-  );
-}
-
-/** A pending-work tile. These are things to act on, not trends. */
-function PendingTile({
-  label,
-  value,
-  icon,
-  href,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: React.ReactNode;
-  href: string;
-  tone: 'amber' | 'blue';
-}) {
-  const palette =
-    tone === 'amber'
-      ? 'border-amber-200 bg-amber-50 text-amber-900'
-      : 'border-sky-200 bg-sky-50 text-sky-900';
-  const zero = value === 0;
-  return (
-    <a
-      href={href}
-      className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition hover:brightness-[0.98] ${
-        zero ? 'border-slate-200 bg-slate-50 text-slate-500' : palette
-      }`}
-    >
-      <span className={zero ? 'text-slate-400' : ''}>{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] font-medium opacity-80">{label}</span>
-        <span className="block text-lg font-semibold leading-tight">{value}</span>
-      </span>
-      {zero && <span className="text-[10px] font-medium uppercase opacity-60">clear</span>}
-    </a>
   );
 }
 
@@ -229,7 +185,6 @@ export function DashboardPage() {
   const s = data.summary;
   const money = (v: number | null | undefined) => (v == null ? '—' : formatMoney(v, 'ETB'));
   const marketRangeLabel = MARKET_RANGES.find((r) => r.key === marketRange)?.full ?? '3 months';
-  const insight = data.expenseInsight;
 
   const stationColumns = [
     { key: 'name', header: 'Station', primary: true },
@@ -527,7 +482,7 @@ export function DashboardPage() {
         />
         <KpiCard
           label="Daily expense rate"
-          value={insight && range.days ? money(insight.total / range.days) : money(insight?.total)}
+          value={range.days ? money(s.stationExpenses / range.days) : money(s.stationExpenses)}
           sub={`${t('dashboard.stationExpenses')}: ${money(s.stationExpenses)}`}
           colour="#d09455"
           icon={<Receipt size={18} />}
@@ -539,167 +494,6 @@ export function DashboardPage() {
           colour="#8f5f38"
           icon={<Users size={18} />}
         />
-      </div>
-
-      {/* ── pending work ──────────────────────────────────────────────── */}
-      <div className="mt-4">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          Waiting on someone
-        </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <PendingTile
-            label="Pending payments"
-            value={data.pending.payments}
-            icon={<Clock size={17} />}
-            href="/purchases"
-            tone="amber"
-          />
-          <PendingTile
-            label="Pending expenses"
-            value={data.pending.expenses}
-            icon={<Receipt size={17} />}
-            href="/expenses"
-            tone="amber"
-          />
-          <PendingTile
-            label="Active lots"
-            value={data.pending.activeLots}
-            icon={<Layers size={17} />}
-            href="/inventory"
-            tone="blue"
-          />
-          <PendingTile
-            label="Completed batches"
-            value={data.pending.completedBatches}
-            icon={<CheckCircle2 size={17} />}
-            href="/processing"
-            tone="blue"
-          />
-        </div>
-      </div>
-
-      {/* ── expense insight ───────────────────────────────────────────── */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
-          <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700">Operating expense</h3>
-              <p className="text-xs text-slate-400">
-                Non-cherry spend over {range.full}
-                {insight?.overheadPerKgGreen != null
-                  ? ` · ${money(insight.overheadPerKgGreen)} per kg of green produced`
-                  : ''}
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-lg font-semibold text-slate-900">{money(insight?.total)}</div>
-              <div
-                className={`text-[11px] font-medium ${
-                  insight?.trend === 'rising'
-                    ? 'text-rose-600'
-                    : insight?.trend === 'falling'
-                      ? 'text-emerald-600'
-                      : 'text-slate-400'
-                }`}
-              >
-                {insight?.trend === 'rising'
-                  ? 'rising through the period'
-                  : insight?.trend === 'falling'
-                    ? 'easing through the period'
-                    : 'steady through the period'}
-              </div>
-            </div>
-          </div>
-
-          {/* Cumulative spend says how the period has accumulated, which a
-              daily series of small figures makes hard to read. */}
-          <div className="mt-2 h-32">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendRows.map((r: any, i: number) => ({ day: r.day, cum: insight?.cumulativeSeries?.[i] ?? 0 }))}>
-                <defs>
-                  <linearGradient id="gCum" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#c08a5a" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#c08a5a" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="day"
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={{ stroke: '#e5e7eb' }}
-                  tickLine={false}
-                  minTickGap={40}
-                  tickFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' })}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
-                  width={40}
-                />
-                <Tooltip
-                  formatter={(v: any) => [formatMoney(Number(v), 'ETB'), 'Cumulative']}
-                  labelFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="cum"
-                  stroke="#ad7846"
-                  strokeWidth={1.75}
-                  fill="url(#gCum)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          {insight?.topCategory && (
-            <p className="mt-3 text-xs text-slate-500">
-              Largest category is{' '}
-              <span className="font-medium text-slate-700">{insight.topCategory}</span> at{' '}
-              {money(insight.topCategoryAmount)} ({insight.topCategorySharePct?.toFixed(0)}% of spend)
-              {insight.significantCategories?.length > 1
-                ? `, ahead of ${insight.significantCategories
-                    .slice(1)
-                    .map((c: any) => c.category)
-                    .join(' and ')}.`
-                : '.'}
-            </p>
-          )}
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="mb-4 text-sm font-semibold text-slate-700">{t('dashboard.expenseByCategory')}</h3>
-          <div className="h-52">
-            {data.expenseByCategory.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={data.expenseByCategory}
-                    dataKey="amount"
-                    nameKey="category"
-                    innerRadius={42}
-                    outerRadius={74}
-                    paddingAngle={2}
-                    isAnimationActive={false}
-                  >
-                    {data.expenseByCategory.map((_: any, i: number) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: any) => formatMoney(Number(v), 'ETB')}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="grid h-full place-items-center text-xs text-slate-400">{t('dashboard.noData')}</div>
-            )}
-          </div>
-        </Card>
       </div>
 
       {/* ── breakdowns and tables ─────────────────────────────────────── */}
