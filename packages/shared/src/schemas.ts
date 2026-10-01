@@ -175,17 +175,8 @@ export const shipmentSchema = z.object({
   contractId: z.string().optional().nullable(),
   date: z.coerce.date().optional().nullable(),
   mode: z.enum(['Sea', 'Air']).default('Sea'),
-  // Destination drives the compliance checklist. Optional so a shipment can be
-  // created before the destination is confirmed; the checklist then resolves to
-  // the universal (origin-side) requirements only.
-  destinationCountryCode: z
-    .string()
-    .length(2)
-    .toUpperCase()
-    .regex(/^[A-Z]{2}$/)
-    .optional()
-    .nullable(),
-  productForm: z.enum(['Green', 'Roasted', 'Soluble', 'Liquid']).default('Green'),
+  // Destination is a commercial term of the invoice, not the shipment. It is
+  // set on the commercial invoice, which owns the document pack.
   port: z.string().optional().nullable(),
   billOfLading: z.string().optional().nullable(),
   containerNo: z.string().optional().nullable(),

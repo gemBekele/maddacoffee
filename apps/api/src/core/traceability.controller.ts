@@ -323,14 +323,22 @@ export class TraceabilityController {
   async eudr(@Param('shipmentId') shipmentId: string) {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
-      include: { eudr: { include: { plotLinks: { include: { plot: { include: { producer: true } } } } } } },
+      include: {
+        eudr: { include: { plotLinks: { include: { plot: { include: { producer: true } } } } } },
+        contract: { include: { commercial: { select: { destinationCountryCode: true, destinationCountryName: true } } } },
+      },
     });
     if (!shipment) return { error: 'Not found' };
 
     const plots = await this.traceabilityPlots(shipmentId);
 
     return {
-      shipment: { id: shipment.id, code: shipment.code, destination: shipment.destinationCountryName },
+      // Destination lives on the commercial invoice, not the shipment.
+      shipment: {
+        id: shipment.id,
+        code: shipment.code,
+        destination: shipment.contract?.commercial?.destinationCountryName ?? null,
+      },
       statement: shipment.eudr,
       plotCount: plots.plots.length,
       geolocatedCount: plots.plots.filter((p: any) => p.geolocated).length,
@@ -354,7 +362,10 @@ export class TraceabilityController {
   @Get('eudr/:shipmentId/geojson')
   @RequirePermissions('shipment.read')
   async geojson(@Param('shipmentId') shipmentId: string) {
-    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      include: { contract: { include: { commercial: { select: { destinationCountryCode: true } } } } },
+    });
     if (!shipment) return { error: 'Not found' };
 
     const traces = await this.tracesForShipment(shipmentId);
@@ -397,7 +408,7 @@ export class TraceabilityController {
       features,
       meta: {
         shipmentCode: shipment.code,
-        destinationCountry: shipment.destinationCountryCode,
+        destinationCountry: shipment.contract?.commercial?.destinationCountryCode ?? null,
         countryOfProduction: 'Ethiopia',
         commodity: 'Coffee',
         generatedAt: new Date().toISOString(),

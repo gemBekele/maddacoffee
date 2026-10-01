@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { Plus, Trash2, ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { Button, Card, Field, Input, Modal, Select, StatusPill, VerificationBadge } from '@/components/ui';
+import { Button, Card, Field, Input, Modal, Select, StatusPill } from '@/components/ui';
 import { DataTable } from '@/components/DataTable';
 import { useList, useOfflineSave } from '@/lib/queries';
-import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatKg, formatMoney, PROFORMA_STATUS, CONTRACT_STATUS, SHIPMENT_STATUS, SHIPMENT_MODE, COFFEE_FORM } from '@madda/shared';
+import { formatKg, formatMoney, PROFORMA_STATUS, CONTRACT_STATUS, SHIPMENT_STATUS, SHIPMENT_MODE } from '@madda/shared';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'ETB'];
 
@@ -299,99 +297,11 @@ export function CommercialPage() {
 
 // ─────────────────────────── Shipments ───────────────────────────
 
-/** Live checklist preview so the operator sees requirements change before saving. */
-function DestinationPreview({ country, form }: { country: string; form: string }) {
-  const { data } = useQuery({
-    queryKey: ['compliance', 'preview', country, form],
-    queryFn: async () => (await api.get(`/compliance/preview?country=${country}&form=${form}`)).data,
-    enabled: !!country,
-  });
-
-  if (!country) {
-    return (
-      <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-        Pick a destination to see which documents this shipment will require. Without one, only the
-        Ethiopian origin-side requirements apply.
-      </div>
-    );
-  }
-  if (!data) return <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-400">Loading requirements…</div>;
-
-  const reqs = data.requirements ?? [];
-  const byCountry = reqs.filter((r: any) => r.matchScope === 'COUNTRY');
-  const byBlock = reqs.filter((r: any) => r.matchScope === 'MARKET_BLOCK');
-  const universal = reqs.filter((r: any) => r.matchScope === 'UNIVERSAL');
-
-  return (
-    <div className="rounded-lg bg-slate-50 p-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="font-semibold text-slate-700">
-          {reqs.length} documents required
-        </span>
-        <span className="text-slate-400">
-          · {data.verifiedCount} verified · {data.unverifiedCount} need checking
-        </span>
-        <span className="ml-auto font-mono text-slate-500">HS {data.hsCode}</span>
-      </div>
-
-      {byCountry.length > 0 && (
-        <div className="mt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            {data.destination?.countryName} specific
-          </div>
-          <ul className="mt-1 space-y-0.5">
-            {byCountry.map((r: any) => (
-              <li key={r.requirementId} className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-600" />
-                {r.documentType}
-                <VerificationBadge status={r.verificationStatus} />
-                {r.appliesToImporter && (
-                  <span className="rounded bg-sky-50 px-1 text-[10px] text-sky-700">importer files</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {byBlock.length > 0 && (
-        <div className="mt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            {data.destination?.market} market block
-          </div>
-          <ul className="mt-1 space-y-0.5">
-            {byBlock.map((r: any) => (
-              <li key={r.requirementId} className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
-                {r.documentType}
-                <VerificationBadge status={r.verificationStatus} />
-                {r.appliesToImporter && (
-                  <span className="rounded bg-sky-50 px-1 text-[10px] text-sky-700">importer files</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {universal.length > 0 && (
-        <div className="mt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Ethiopian export side (all destinations)
-          </div>
-          <p className="mt-0.5 text-xs text-slate-500">{universal.map((r: any) => r.documentType).join(' · ')}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ShipmentsPage() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { data: rows, isLoading } = useList<any[]>(['shipments'], '/shipments');
   const { data: contracts } = useList<any[]>(['contracts'], '/contracts');
-  const { data: profiles } = useList<any[]>(['compliance', 'profiles'], '/compliance/profiles');
   const save = useOfflineSave([['shipments']], { url: '/shipments' });
   const [form, setForm] = useState<any>({
     contractId: '',
@@ -399,21 +309,7 @@ export function ShipmentsPage() {
     mode: 'Sea',
     port: 'Djibouti',
     containerNo: '',
-    destinationCountryCode: '',
-    productForm: 'Green',
   });
-
-  // Pre-fill the destination from the selected contract's buyer country.
-  const onContractChange = (value: string) => {
-    const contract = contracts?.find((c: any) => c.id === value);
-    const buyerCountry = (contract?.buyer?.country ?? '').trim().toUpperCase();
-    const known = profiles?.some((p: any) => p.countryCode === buyerCountry.slice(0, 2));
-    setForm({
-      ...form,
-      contractId: value,
-      destinationCountryCode: known ? buyerCountry.slice(0, 2) : form.destinationCountryCode,
-    });
-  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,7 +327,9 @@ export function ShipmentsPage() {
           <div className="font-medium">{r.code}</div>
           <div className="text-xs text-slate-400">
             {r.contract?.buyer?.name ?? '—'} · {r.mode} · {r.port ?? ''}
-            {r.destinationCountryName ? ` → ${r.destinationCountryName}` : ''}
+            {r.commercialInvoice?.destinationCountryName
+              ? ` → ${r.commercialInvoice.destinationCountryName}`
+              : ''}
           </div>
         </div>
       ),
@@ -484,7 +382,7 @@ export function ShipmentsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="New Shipment">
         <form onSubmit={submit} className="space-y-4">
           <Field label="Contract">
-            <Select value={form.contractId} onChange={(e) => onContractChange(e.target.value)}>
+            <Select value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })}>
               <option value="">—</option>
               {contracts?.map((c: any) => (
                 <option key={c.id} value={c.id}>
@@ -495,33 +393,12 @@ export function ShipmentsPage() {
             </Select>
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Destination country" hint="Drives the document checklist">
-              <Select
-                value={form.destinationCountryCode}
-                onChange={(e) => setForm({ ...form, destinationCountryCode: e.target.value })}
-              >
-                <option value="">— not set —</option>
-                {(profiles ?? []).map((p: any) => (
-                  <option key={p.countryCode} value={p.countryCode}>
-                    {p.countryName} ({p.countryCode})
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Product form" hint="Green and roasted differ by market">
-              <Select
-                value={form.productForm}
-                onChange={(e) => setForm({ ...form, productForm: e.target.value })}
-              >
-                {COFFEE_FORM.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </Select>
-            </Field>
+          {/* Destination and the document pack belong to the commercial invoice,
+              not the shipment. This form only records the physical movement. */}
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            Export documents are prepared on the commercial invoice. Convert the proforma to create
+            the invoice and its destination-driven document pack.
           </div>
-
-          <DestinationPreview country={form.destinationCountryCode} form={form.productForm} />
 
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('common.date')}>

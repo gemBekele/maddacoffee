@@ -15,7 +15,7 @@ import {
 /**
  * Country compliance resolution.
  *
- * The chain is: Shipment.destinationCountryCode -> CountryComplianceProfile ->
+ * The chain is: CommercialInvoice.destinationCountryCode -> CountryComplianceProfile ->
  * ComplianceRequirement rows matching that country, its market block, or "*" ->
  * product-form and effective-date filters -> triggerConditions -> materialised
  * ShipmentDocument rows.
@@ -183,18 +183,27 @@ export class ComplianceService {
     });
   }
 
-  /** Build the trigger context a real shipment presents. */
-  private async buildContext(shipmentId: string): Promise<{ ctx: TriggerContext; valueUsd: number | null }> {
-    const shipment = await this.prisma.shipment.findUnique({
-      where: { id: shipmentId },
+  /**
+   * Build the trigger context a real commercial invoice presents.
+   *
+   * Everything the rules key on is a commercial term of the invoice: the lots on
+   * its lines, the Incoterm, the buyer, and the value. Mode is the only
+   * shipment-level input, and it is only present once a shipment exists.
+   */
+  private async buildContext(invoiceId: string): Promise<{ ctx: TriggerContext; valueUsd: number | null }> {
+    const invoice = await this.prisma.commercialInvoice.findUnique({
+      where: { id: invoiceId },
       include: {
-        contract: { include: { commercial: { include: { lines: true } }, proforma: { include: { lines: true } } } },
+        lines: true,
+        buyer: { select: { country: true } },
+        contract: { include: { proforma: { include: { lines: true } } } },
       },
     });
-    if (!shipment) throw new NotFoundException('Shipment not found');
+    if (!invoice) throw new NotFoundException('Commercial invoice not found');
 
-    const contract = shipment.contract;
-    const lines = contract?.commercial?.lines ?? contract?.proforma?.lines ?? [];
+    // An invoice converted from a proforma may not have its own lines if the
+    // conversion predates line copying, so fall back to the proforma's lines.
+    const lines = invoice.lines.length ? invoice.lines : (invoice.contract?.proforma?.lines ?? []);
     const lotIds = [...new Set(lines.map((l: any) => l.lotId).filter(Boolean))] as string[];
 
     const lots = lotIds.length
@@ -209,68 +218,74 @@ export class ComplianceService {
       : false;
 
     const amount = lines.reduce((sum: number, l: any) => sum + Number(l.amount ?? 0), 0);
+    const valueUsd = Number.isFinite(amount) && amount > 0 ? amount : null;
 
     return {
-      valueUsd: Number.isFinite(amount) && amount > 0 ? amount : null,
+      valueUsd,
       ctx: {
-        form: shipment.productForm ?? 'Green',
+        form: invoice.productForm ?? 'Green',
         coffeeTypes: [...new Set(lots.map((l) => l.coffeeType).filter(Boolean))] as string[],
         processes: [...new Set(lots.map((l) => l.process).filter(Boolean))] as string[],
         organic: lots.some((l) => l.organic),
-        incoterm: contract?.incoterm ?? null,
-        valueUsd: Number.isFinite(amount) && amount > 0 ? amount : null,
+        incoterm: invoice.incoterm ?? invoice.contract?.incoterm ?? null,
+        valueUsd,
         cupScores: lots.map((l) => (l.cuppingScore ? Number(l.cuppingScore) : null)).filter((n): n is number => n !== null),
         grades: lots.map((l) => l.grade).filter(Boolean) as string[],
-        buyerCountry: contract ? await this.buyerCountry(contract.buyerId) : null,
-        mode: shipment.mode,
+        buyerCountry: invoice.buyer?.country ?? null,
+        mode: null, // set by the caller when a shipment is linked
         hasPlotData,
       },
     };
   }
 
-  private async buyerCountry(buyerId: string): Promise<string | null> {
-    const buyer = await this.prisma.buyer.findUnique({ where: { id: buyerId }, select: { country: true } });
-    return buyer?.country ?? null;
-  }
-
   /**
-   * Recompute a shipment's checklist for its current destination.
+   * Recompute the export document pack for a commercial invoice.
    *
-   * Additive only. Rows whose documentType is no longer required, or whose
-   * triggers stopped firing, become NotApplicable rather than being deleted.
+   * The invoice owns the pack. Additive only: rows whose documentType is no
+   * longer required, or whose triggers stopped firing, become NotApplicable
+   * rather than being deleted, because an issued certificate or a submitted DDS
+   * reference is a record that has to survive a destination change.
    */
-  async applyToShipment(shipmentId: string, opts: { regenerate?: boolean } = {}) {
-    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
-    if (!shipment) throw new NotFoundException('Shipment not found');
+  async applyToInvoice(invoiceId: string, opts: { regenerate?: boolean } = {}) {
+    const invoice = await this.prisma.commercialInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { contract: { include: { shipment: true } } },
+    });
+    if (!invoice) throw new NotFoundException('Commercial invoice not found');
 
     // Backfill the market block so we do not need a join on every resolution.
-    if (shipment.destinationCountryCode) {
+    if (invoice.destinationCountryCode) {
       const profile = await this.prisma.countryComplianceProfile.findFirst({
-        where: { countryCode: shipment.destinationCountryCode },
+        where: { countryCode: invoice.destinationCountryCode },
       });
       if (profile) {
-        shipment.destinationCountryName = profile.countryName;
-        shipment.destinationMarket = profile.market;
+        invoice.destinationCountryName = profile.countryName;
+        invoice.destinationMarket = profile.market;
       }
     }
 
-    const { ctx, valueUsd } = await this.buildContext(shipmentId);
+    // A shipment, when one exists, only contributes its transport mode to the
+    // trigger context. Every other input is a commercial term of the invoice.
+    const linkedShipmentId = invoice.contract?.shipment?.id ?? null;
+    const { ctx, valueUsd } = await this.buildContext(invoiceId);
+    if (invoice.contract?.shipment?.mode) ctx.mode = invoice.contract.shipment.mode;
+
     const requirements = await this.allRequirements();
-    const asOf = shipment.date ?? new Date();
+    const asOf = invoice.date ?? new Date();
 
     const resolved = resolveRequirements(requirements, {
-      destinationCountryCode: shipment.destinationCountryCode,
-      marketBlock: shipment.destinationMarket,
+      destinationCountryCode: invoice.destinationCountryCode,
+      marketBlock: invoice.destinationMarket,
       asOf,
       context: ctx,
     });
 
-    // Company-level requirements are referenced, not materialised per shipment.
+    // Company-level requirements are referenced, not materialised per invoice.
     const companyReqs = resolved.filter((x) => ['COMPANY', 'SHARED'].includes(x.requirement.scope));
     const checklist = toChecklist(resolved, 'SHIPMENT');
     const lotDocs = resolved.filter((x) => x.requirement.scope === 'LOT');
 
-    const existing = await this.prisma.shipmentDocument.findMany({ where: { shipmentId } });
+    const existing = await this.prisma.exportDocument.findMany({ where: { commercialInvoiceId: invoiceId } });
     const existingByType = new Map(existing.map((d) => [d.docType, d]));
     const wanted = new Set<string>();
     const created: string[] = [];
@@ -320,20 +335,24 @@ export class ComplianceService {
         // destination changes back. Re-activate it, but never overwrite a status
         // an operator has already set (Ready/Submitted/InProgress/Rejected).
         const reactivated = prior.status === 'NotApplicable';
-        await this.prisma.shipmentDocument.update({
+        await this.prisma.exportDocument.update({
           where: { id: prior.id },
           data: {
             ...data,
             requirementId: r.id,
+            // Keep the logistics link current in case a shipment was attached
+            // after the pack was first generated.
+            shipmentId: linkedShipmentId,
             ...(reactivated ? { status: 'Pending' } : {}),
             ...(reactivated ? { validUntil: dueDate } : {}),
           },
         });
         updated.push(r.documentType);
       } else {
-        await this.prisma.shipmentDocument.create({
+        await this.prisma.exportDocument.create({
           data: {
-            shipmentId,
+            commercialInvoiceId: invoiceId,
+            shipmentId: linkedShipmentId,
             docType: r.documentType,
             requirementId: r.id,
             status: 'Pending',
@@ -369,7 +388,7 @@ export class ComplianceService {
     for (const doc of existing) {
       if (wanted.has(doc.docType)) continue;
       if (deletable.some((d) => d.id === doc.id)) continue;
-      await this.prisma.shipmentDocument.update({
+      await this.prisma.exportDocument.update({
         where: { id: doc.id },
         data: { status: 'NotApplicable', mandatory: false },
       });
@@ -379,26 +398,27 @@ export class ComplianceService {
     if (deletable.length) {
       // Only rows the compliance engine never touched: no requirementId and
       // still Pending. Anything with a reference or an attachment is a record.
-      await this.prisma.shipmentDocument.deleteMany({ where: { id: { in: deletable.map((d) => d.id) } } });
+      await this.prisma.exportDocument.deleteMany({ where: { id: { in: deletable.map((d) => d.id) } } });
     }
 
-    await this.prisma.shipment.update({
-      where: { id: shipmentId },
+    await this.prisma.commercialInvoice.update({
+      where: { id: invoiceId },
       data: {
-        destinationCountryCode: shipment.destinationCountryCode,
-        destinationCountryName: shipment.destinationCountryName,
-        destinationMarket: shipment.destinationMarket,
+        destinationCountryName: invoice.destinationCountryName,
+        destinationMarket: invoice.destinationMarket,
       },
     });
 
     this.logger.log(
-      `Shipment ${shipment.code}: ${checklist.length + lotDocs.length} required for ${shipment.destinationCountryCode ?? 'unspecified destination'} ` +
+      `Invoice ${invoice.code}: ${checklist.length + lotDocs.length} documents required for ${invoice.destinationCountryCode ?? 'unspecified destination'} ` +
         `(created ${created.length}, updated ${updated.length}, retracted ${retracted.length}, value $${valueUsd ?? 'n/a'})`,
     );
 
     return {
-      shipmentId,
-      destination: shipment.destinationCountryCode,
+      commercialInvoiceId: invoiceId,
+      invoiceCode: invoice.code,
+      shipmentId: linkedShipmentId,
+      destination: invoice.destinationCountryCode,
       valueUsd,
       created,
       updated,
@@ -408,8 +428,8 @@ export class ComplianceService {
         documentType: x.requirement.documentType,
         name: x.requirement.name,
       })),
-      documents: await this.prisma.shipmentDocument.findMany({
-        where: { shipmentId },
+      documents: await this.prisma.exportDocument.findMany({
+        where: { commercialInvoiceId: invoiceId },
         include: { companyDoc: true, requirement: true },
         orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
       }),
@@ -420,12 +440,12 @@ export class ComplianceService {
    * Link a company document to the checklist rows that depend on it, keeping a
    * snapshot of the number and expiry at the time of use.
    */
-  async linkCompanyDocument(shipmentId: string, companyDocId: string) {
+  async linkCompanyDocument(invoiceId: string, companyDocId: string) {
     const doc = await this.prisma.companyDocument.findUnique({ where: { id: companyDocId } });
     if (!doc) throw new NotFoundException('Company document not found');
 
-    await this.prisma.shipmentDocument.updateMany({
-      where: { shipmentId, docType: doc.docType },
+    await this.prisma.exportDocument.updateMany({
+      where: { commercialInvoiceId: invoiceId, docType: doc.docType },
       data: {
         companyDocId: doc.id,
         companyDocSnapshot: {
@@ -443,12 +463,12 @@ export class ComplianceService {
   }
 
   /** Evaluate a stored requirement's triggers on demand, for the UI. */
-  async testTriggers(requirementId: string, shipmentId?: string) {
+  async testTriggers(requirementId: string, invoiceId?: string) {
     const r = await this.prisma.complianceRequirement.findUnique({ where: { id: requirementId } });
     if (!r) throw new NotFoundException('Requirement not found');
 
     let ctx: TriggerContext = {};
-    if (shipmentId) ctx = (await this.buildContext(shipmentId)).ctx;
+    if (invoiceId) ctx = (await this.buildContext(invoiceId)).ctx;
     const res = evaluateTriggers(r.triggerConditions as any, ctx);
     return { requirementId, ...res, context: ctx };
   }

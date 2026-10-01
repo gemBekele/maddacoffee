@@ -42,6 +42,226 @@ function useDetail(key: string, url: string) {
 }
 
 /**
+ * The export document pack.
+ *
+ * Anchored on the commercial invoice: the invoice is what the bank, customs and
+ * the buyer key on, and it is produced by the proforma conversion that starts
+ * the documentation work. A shipment shows the same pack read-only.
+ */
+function DocumentPackPanel({
+  invoice,
+  invalidate,
+  canEdit = true,
+}: {
+  invoice: any;
+  invalidate: () => void;
+  canEdit?: boolean;
+}) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  const { data: profiles } = useQuery({
+    queryKey: ['compliance', 'profiles'],
+    queryFn: async () => (await api.get('/compliance/profiles')).data,
+  });
+
+  if (!invoice) {
+    return (
+      <Card className="p-5">
+        <div className="text-sm font-semibold text-slate-800">Export documents</div>
+        <div className="mt-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+          Export documents are prepared once the proforma is converted to a commercial invoice.
+          Convert the proforma to create the invoice and its document pack.
+        </div>
+      </Card>
+    );
+  }
+
+  const setDestination = async (countryCode: string) => {
+    setBusy(true);
+    try {
+      await api.patch(`/commercial-invoices/${invoice.id}/compliance/destination`, {
+        destinationCountryCode: countryCode || null,
+        productForm: invoice.productForm ?? 'Green',
+      });
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['commercial'] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reapply = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/commercial-invoices/${invoice.id}/compliance/apply`, { regenerate: false });
+      invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setDoc = async (docId: string, status: string) => {
+    await api.patch(`/shipments/documents/${docId}`, { status });
+    invalidate();
+  };
+
+  const all: any[] = invoice.documents ?? [];
+  const applicable = all.filter((d) => d.status !== 'NotApplicable');
+  const retracted = all.filter((d) => d.status === 'NotApplicable');
+  const summary = invoice.summary;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Export documents</div>
+          <div className="text-xs text-slate-400">
+            {invoice.destinationCountryName
+              ? `For ${invoice.destinationCountryName}`
+              : 'Destination not set — showing origin-side requirements only'}
+            {summary ? ` · ${summary.ready} of ${summary.total} ready` : ''}
+            {summary?.unverified ? ` · ${summary.unverified} need checking` : ''}
+          </div>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <Select
+              value={invoice.destinationCountryCode ?? ''}
+              onChange={(e) => setDestination(e.target.value)}
+              className="h-8 w-auto text-xs"
+              disabled={busy}
+            >
+              <option value="">Destination —</option>
+              {profiles?.map((p: any) => (
+                <option key={p.countryCode} value={p.countryCode}>
+                  {p.countryName}
+                </option>
+              ))}
+            </Select>
+            <Button variant="ghost" onClick={reapply} className="h-8 text-xs" disabled={busy}>
+              <RefreshCw size={13} className={busy ? 'animate-spin' : ''} /> Re-check
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {summary && summary.total > 0 && (
+        <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-brand-600 transition-all"
+            style={{ width: `${Math.round((summary.ready / summary.total) * 100)}%` }}
+          />
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {applicable.map((d: any) => (
+          <div
+            key={d.id}
+            className={`rounded-lg border px-3 py-2 ${
+              d.mandatory ? 'border-slate-200' : 'border-dashed border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-medium text-slate-700">{d.docType}</span>
+                  {d.mandatory ? (
+                    <span className="text-[10px] font-semibold uppercase text-brand-700">required</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold uppercase text-slate-400">conditional</span>
+                  )}
+                  <VerificationBadge status={d.verificationStatus} />
+                  <IssuerBadge type={d.issuerType} />
+                </div>
+                {d.authority && (
+                  <div className="mt-0.5 text-[11px] text-slate-400">
+                    {d.authority}
+                    {d.validUntil ? ` · target by ${new Date(d.validUntil).toLocaleDateString()}` : ''}
+                    {d.reference ? ` · ref ${d.reference}` : ''}
+                  </div>
+                )}
+                {d.companyDocSnapshot && (
+                  <div className="mt-0.5 text-[11px] text-emerald-700">
+                    using company document {d.companyDocSnapshot.number}
+                  </div>
+                )}
+                {d.officialUrl && (
+                  <a
+                    href={d.officialUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline"
+                  >
+                    <ExternalLink size={10} /> authority source
+                  </a>
+                )}
+              </div>
+              <select
+                className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                value={d.status}
+                onChange={(e) => setDoc(d.id, e.target.value)}
+              >
+                {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ))}
+        {applicable.length === 0 && (
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            No documents resolve for this destination yet. Set a destination to build the pack.
+          </div>
+        )}
+        {retracted.length > 0 && (
+          <details className="mt-2 text-xs">
+            <summary className="cursor-pointer text-slate-400">
+              {retracted.length} document(s) no longer required for this destination
+            </summary>
+            <div className="mt-1.5 space-y-1 pl-2">
+              {retracted.map((d: any) => (
+                <div key={d.id} className="text-slate-400 line-through">
+                  {d.docType}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {/* Company documents are held once and referenced, never copied per invoice. */}
+      {invoice.companyDocuments?.length > 0 && (
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <Building2 size={13} className="text-slate-400" />
+            Company documents this invoice relies on
+          </div>
+          <div className="space-y-1">
+            {invoice.companyDocuments.map((c: any) => (
+              <div key={c.requirementId} className="flex items-center gap-2 text-xs">
+                <span className="text-slate-600">{c.documentType}</span>
+                <VerificationBadge status={c.verificationStatus} />
+                {c.held ? (
+                  <span className="text-emerald-700">
+                    {c.held.number}
+                    {c.held.expiresAt ? ` · exp ${new Date(c.held.expiresAt).toLocaleDateString()}` : ''}
+                  </span>
+                ) : (
+                  <span className="text-amber-700">not on file</span>
+                )}
+                <span className="ml-auto text-slate-400">{c.authority}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
  * EUDR panel.
  *
  * Deliberately separate from the document checklist. The exporter never files a
@@ -313,6 +533,9 @@ export function CommercialDetailPage() {
             <DataTable columns={columns} rows={inv.lines ?? []} />
             <div className="mt-4 flex justify-end text-sm font-semibold text-slate-900">Total: {formatMoney(total, inv.currency)}</div>
           </Card>
+
+          {/* The document pack belongs to the invoice, so it is managed here. */}
+          <DocumentPackPanel invoice={inv} invalidate={() => act(async () => {})} />
         </div>
         <div className="space-y-4">
           <Card className="p-5"><h3 className="mb-2 text-sm font-semibold text-slate-800">Customer details</h3><CustomerCard buyer={inv.buyer} /></Card>
@@ -351,44 +574,9 @@ export function ShipmentDetailPage() {
     qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
   };
 
-  // Changing the destination re-resolves the whole checklist server-side, so the
-  // client does not try to derive requirements locally.
-  const [applying, setApplying] = useState(false);
-  const setDestination = async (countryCode: string) => {
-    setApplying(true);
-    try {
-      await api.patch(`/shipments/${id}/compliance/destination`, {
-        destinationCountryCode: countryCode || null,
-        productForm: sh?.productForm ?? 'Green',
-      });
-      await qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
-      qc.invalidateQueries({ queryKey: ['shipments'] });
-    } finally {
-      setApplying(false);
-    }
-  };
-
-  const reapply = async () => {
-    setApplying(true);
-    try {
-      await api.post(`/shipments/${id}/compliance/apply`, { regenerate: false });
-      await qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
-    } finally {
-      setApplying(false);
-    }
-  };
-
-  const { data: profiles } = useQuery({
-    queryKey: ['compliance', 'profiles'],
-    queryFn: async () => (await api.get('/compliance/profiles')).data,
-  });
-
   if (isLoading || !sh) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
   const stepIdx = Math.max(0, TRACK_STEPS.indexOf(sh.trackingStatus));
   const buyer = sh.contract?.buyer;
-  const allDocs: any[] = sh.documents ?? [];
-  const applicableDocs = allDocs.filter((d: any) => d.status !== 'NotApplicable');
-  const retractedDocs = allDocs.filter((d: any) => d.status === 'NotApplicable');
 
   return (
     <div>
@@ -507,150 +695,15 @@ export function ShipmentDetailPage() {
             </div>
           </Card>
 
-          <Card className="p-5">
-            {/* Destination drives this list, so it is editable here rather than fixed at creation. */}
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-800">Export documents</div>
-                <div className="text-xs text-slate-400">
-                  Required for {sh.destinationCountryName ?? 'an unspecified destination'} ·{' '}
-                  {sh.summary?.ready ?? 0} of {sh.summary?.total ?? 0} ready
-                  {sh.summary?.unverified ? ` · ${sh.summary.unverified} need checking` : ''}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={sh.destinationCountryCode ?? ''}
-                  onChange={(e) => setDestination(e.target.value)}
-                  className="h-8 w-auto text-xs"
-                >
-                  <option value="">Destination —</option>
-                  {profiles?.map((p: any) => (
-                    <option key={p.countryCode} value={p.countryCode}>
-                      {p.countryName}
-                    </option>
-                  ))}
-                </Select>
-                <Button variant="ghost" onClick={reapply} className="h-8 text-xs">
-                  <RefreshCw size={13} className={applying ? 'animate-spin' : ''} /> Re-check
-                </Button>
-              </div>
-            </div>
-
-            {sh.summary && sh.summary.total > 0 && (
-              <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-brand-600 transition-all"
-                  style={{ width: `${Math.round(((sh.summary.ready ?? 0) / sh.summary.total) * 100)}%` }}
-                />
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              {applicableDocs.map((d: any) => (
-                <div
-                  key={d.id}
-                  className={`rounded-lg border px-3 py-2 ${
-                    d.status === 'NotApplicable'
-                      ? 'border-slate-100 bg-slate-50 opacity-60'
-                      : d.mandatory
-                        ? 'border-slate-200'
-                        : 'border-dashed border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-medium text-slate-700">{d.docType}</span>
-                        {d.mandatory ? (
-                          <span className="text-[10px] font-semibold uppercase text-brand-700">required</span>
-                        ) : (
-                          <span className="text-[10px] font-semibold uppercase text-slate-400">conditional</span>
-                        )}
-                        <VerificationBadge status={d.verificationStatus} />
-                        <IssuerBadge type={d.issuerType} />
-                      </div>
-                      {d.authority && (
-                        <div className="mt-0.5 text-[11px] text-slate-400">
-                          {d.authority}
-                          {d.validUntil ? ` · target by ${new Date(d.validUntil).toLocaleDateString()}` : ''}
-                          {d.reference ? ` · ref ${d.reference}` : ''}
-                        </div>
-                      )}
-                      {d.companyDocSnapshot && (
-                        <div className="mt-0.5 text-[11px] text-emerald-700">
-                          using company document {d.companyDocSnapshot.number}
-                          {d.companyDocSnapshot.expiresAt
-                            ? ` (expires ${new Date(d.companyDocSnapshot.expiresAt).toLocaleDateString()})`
-                            : ''}
-                        </div>
-                      )}
-                      {d.officialUrl && (
-                        <a
-                          href={d.officialUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline"
-                        >
-                          <ExternalLink size={10} /> authority source
-                        </a>
-                      )}
-                    </div>
-                    <select
-                      className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs"
-                      value={d.status}
-                      onChange={(e) => setDoc(d.id, e.target.value)}
-                    >
-                      {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ))}
-              {retractedDocs.length > 0 && (
-                <details className="mt-2 text-xs">
-                  <summary className="cursor-pointer text-slate-400">
-                    {retractedDocs.length} document(s) no longer required for this destination
-                  </summary>
-                  <div className="mt-1.5 space-y-1 pl-2">
-                    {retractedDocs.map((d: any) => (
-                      <div key={d.id} className="text-slate-400 line-through">
-                        {d.docType}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </div>
-
-            {/* Company documents are held once and referenced, never copied per shipment. */}
-            {sh.companyDocuments?.length > 0 && (
-              <div className="mt-4 border-t border-slate-100 pt-3">
-                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                  <Building2 size={13} className="text-slate-400" />
-                  Company documents this shipment relies on
-                </div>
-                <div className="space-y-1">
-                  {sh.companyDocuments.map((c: any) => (
-                    <div key={c.requirementId} className="flex items-center gap-2 text-xs">
-                      <span className="text-slate-600">{c.documentType}</span>
-                      <VerificationBadge status={c.verificationStatus} />
-                      {c.held ? (
-                        <span className="text-emerald-700">
-                          {c.held.number}
-                          {c.held.expiresAt ? ` · exp ${new Date(c.held.expiresAt).toLocaleDateString()}` : ''}
-                        </span>
-                      ) : (
-                        <span className="text-amber-700">not on file</span>
-                      )}
-                      <span className="ml-auto text-slate-400">{c.authority}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
+          {/* The pack is owned by the commercial invoice; this is a read-through. */}
+          <DocumentPackPanel
+            invoice={sh.commercialInvoice}
+            invalidate={() => {
+              qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
+              qc.invalidateQueries({ queryKey: ['shipments'] });
+            }}
+            canEdit={false}
+          />
 
           {/* EUDR is a separate module, not a checkbox on the checklist. */}
           {(sh.destinationMarket === 'EU' || sh.eudr) && (

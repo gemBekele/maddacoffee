@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { NumberingService } from '../common/numbering.service';
@@ -135,6 +135,7 @@ export class ProformasController {
     private numbering: NumberingService,
     private email: EmailService,
     private activity: ActivityService,
+    private compliance: ComplianceService,
   ) {}
 
   @Get()
@@ -242,7 +243,12 @@ export class ProformasController {
   @Post(':id/convert')
   @RequirePermissions('commercial.write')
   async convert(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
-    const pf = await this.prisma.proformaInvoice.findUnique({ where: { id }, include: { lines: true } });
+    const pf = await this.prisma.proformaInvoice.findUnique({
+      where: { id },
+      // The contract link matters: the shipment reaches the invoice's document
+      // pack through the contract, so the invoice must carry the contractId.
+      include: { lines: true, contract: { select: { id: true, incoterm: true, currency: true } } },
+    });
     if (!pf) return { error: 'Not found' };
     if (pf.status === 'Converted') {
       const existing = await this.prisma.commercialInvoice.findFirst({ where: { proformaId: id } });
@@ -255,8 +261,9 @@ export class ProformasController {
         date: new Date(),
         buyerId: pf.buyerId,
         proformaId: pf.id,
+        contractId: pf.contract?.id ?? null,
         currency: pf.currency,
-        incoterm: pf.incoterm,
+        incoterm: pf.contract?.incoterm ?? pf.incoterm,
         status: 'Draft',
         lines: {
           create: pf.lines.map((l) => ({
@@ -274,7 +281,34 @@ export class ProformasController {
     await this.audit.log({ userId: actor.id, action: 'CONVERT', entity: 'CommercialInvoice', entityId: inv.id });
     await this.activity.log('ProformaInvoice', id, 'status', `Converted to commercial invoice ${inv.code}`, actor.id);
     await this.activity.log('CommercialInvoice', inv.id, 'created', `Created from proforma ${pf.code}`, actor.id);
-    return inv;
+
+    // The proforma -> commercial conversion is what triggers documentation work,
+    // so the export document pack is built here. A failure must not lose the
+    // invoice, so it is logged rather than thrown; the pack can be rebuilt from
+    // the Commercial tab at any time.
+    let pack: { created: string[]; updated: string[]; retracted: string[] } | null = null;
+    try {
+      pack = await this.compliance.applyToInvoice(inv.id, { regenerate: true });
+      await this.activity.log(
+        'CommercialInvoice',
+        inv.id,
+        'note',
+        `Document pack prepared: ${pack.created.length} required${
+          inv.destinationCountryName ? ` for ${inv.destinationCountryName}` : ' (destination not set)'
+        }`,
+        actor.id,
+      );
+    } catch (e) {
+      await this.activity.log(
+        'CommercialInvoice',
+        inv.id,
+        'note',
+        `Document pack could not be prepared: ${(e as Error).message}. Retry from the commercial invoice.`,
+        actor.id,
+      );
+    }
+
+    return { ...inv, documentPack: pack };
   }
 }
 
@@ -328,6 +362,7 @@ export class CommercialController {
     private audit: AuditService,
     private email: EmailService,
     private activity: ActivityService,
+    private compliance: ComplianceService,
   ) {}
 
   @Get()
@@ -336,10 +371,125 @@ export class CommercialController {
     return this.prisma.commercialInvoice.findMany({ include: { buyer: true, lines: true }, orderBy: { date: 'desc' }, take: 500 });
   }
 
+  /**
+   * A commercial invoice with its export document pack.
+   *
+   * The pack belongs to the invoice, so it is returned here rather than fetched
+   * separately. Company-level documents the invoice relies on are resolved by
+   * docType and reported with whether we actually hold them.
+   */
   @Get(':id')
   @RequirePermissions('commercial.read')
-  one(@Param('id') id: string) {
-    return this.prisma.commercialInvoice.findUnique({ where: { id }, include: { buyer: true, lines: true, proforma: true } });
+  async one(@Param('id') id: string) {
+    const invoice = await this.prisma.commercialInvoice.findUnique({
+      where: { id },
+      include: {
+        buyer: true,
+        lines: true,
+        proforma: true,
+        contract: { include: { shipment: true } },
+        documents: {
+          include: { companyDoc: true, requirement: true },
+          orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Commercial invoice not found');
+
+    const companyRequired = await this.prisma.complianceRequirement.findMany({
+      where: { scope: { in: ['COMPANY', 'SHARED'] }, mandatory: true, effectiveUntil: null },
+      orderBy: { name: 'asc' },
+    });
+    const held = await this.prisma.companyDocument.findMany({
+      where: { status: { not: 'Revoked' } },
+      orderBy: { issuedAt: 'desc' },
+    });
+    const heldByType = new Map<string, (typeof held)[number]>();
+    for (const d of held) if (!heldByType.has(d.docType)) heldByType.set(d.docType, d);
+
+    const checklist = invoice.documents.filter((d) => d.status !== 'NotApplicable');
+    const ready = checklist.filter((d) => d.status === 'Ready' || d.status === 'Submitted');
+
+    return {
+      ...invoice,
+      companyDocuments: companyRequired.map((r) => ({
+        requirementId: r.id,
+        documentType: r.documentType,
+        name: r.name,
+        authority: r.authority,
+        legalBasis: r.legalBasis,
+        verificationStatus: r.verificationStatus,
+        verificationSource: r.verificationSource,
+        held: heldByType.get(r.documentType) ?? null,
+      })),
+      summary: {
+        required: checklist.filter((d) => d.mandatory).length,
+        ready: ready.length,
+        total: checklist.length,
+        verified: checklist.filter((d) => d.verificationStatus === 'VERIFIED').length,
+        unverified: checklist.filter((d) => d.verificationStatus && d.verificationStatus !== 'VERIFIED').length,
+        expiringSoon: checklist.filter((d) => d.validUntil && new Date(d.validUntil) <= addDays(new Date(), 30)).length,
+      },
+      companyGaps: companyRequired
+        .filter((r) => !heldByType.has(r.documentType))
+        .map((r) => ({
+          requirementId: r.id,
+          documentType: r.documentType,
+          name: r.name,
+          authority: r.authority,
+          legalBasis: r.legalBasis,
+          verificationStatus: r.verificationStatus,
+        })),
+    };
+  }
+
+  /** Rebuild the document pack. Safe to call repeatedly. */
+  @Post(':id/compliance/apply')
+  @RequirePermissions('commercial.write')
+  async applyCompliance(@Param('id') id: string, @Body('regenerate') regenerate: boolean, @CurrentUser() actor: AuthUser) {
+    const result = await this.compliance.applyToInvoice(id, { regenerate: !!regenerate });
+    await this.activity.log(
+      'CommercialInvoice',
+      id,
+      'note',
+      `Document pack resolved for ${result.destination ?? 'unspecified destination'}: ${result.created.length} added, ${result.updated.length} refreshed, ${result.retracted.length} no longer required`,
+      actor.id,
+    );
+    return result;
+  }
+
+  /** Change the destination and rebuild the pack in one call. */
+  @Patch(':id/compliance/destination')
+  @RequirePermissions('commercial.write')
+  async setDestination(
+    @Param('id') id: string,
+    @Body() body: { destinationCountryCode?: string | null; productForm?: string | null },
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const invoice = await this.prisma.commercialInvoice.update({
+      where: { id },
+      data: {
+        destinationCountryCode: body.destinationCountryCode ?? null,
+        productForm: body.productForm ?? 'Green',
+      },
+    });
+    const result = await this.compliance.applyToInvoice(id);
+    await this.audit.log({ userId: actor.id, action: 'SET_DESTINATION', entity: 'CommercialInvoice', entityId: id, after: body });
+    await this.activity.log(
+      'CommercialInvoice',
+      id,
+      'status',
+      `Destination set to ${result.destination ?? 'unspecified'} — ${result.created.length} documents required, ${result.retracted.length} no longer applicable`,
+      actor.id,
+    );
+    return { invoice, ...result };
+  }
+
+  /** Link a company-level document to the pack rows that depend on it. */
+  @Post(':id/compliance/link-company-doc')
+  @RequirePermissions('commercial.write')
+  async linkCompanyDoc(@Param('id') id: string, @Body('companyDocId') companyDocId: string) {
+    return this.compliance.linkCompanyDocument(id, companyDocId);
   }
 
   @Patch(':id/status')
@@ -426,8 +576,21 @@ export class ShipmentsController {
 
   @Get()
   @RequirePermissions('shipment.read')
-  list() {
-    return this.prisma.shipment.findMany({ include: { contract: { include: { buyer: true } }, documents: true }, orderBy: { createdAt: 'desc' }, take: 500 });
+  async list() {
+    const rows = await this.prisma.shipment.findMany({
+      include: {
+        contract: { include: { buyer: true, commercial: { include: { documents: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    // The document pack belongs to the invoice, so surface it under the shipment
+    // as a read-through rather than storing a second copy.
+    return rows.map((s) => ({
+      ...s,
+      commercialInvoice: s.contract?.commercial ?? null,
+      documents: s.contract?.commercial?.documents ?? [],
+    }));
   }
 
   @Get(':id')
@@ -436,46 +599,58 @@ export class ShipmentsController {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
       include: {
-        contract: { include: { buyer: true, commercial: { include: { lines: true } }, proforma: { include: { lines: true } } } },
-        documents: { include: { companyDoc: true, requirement: true }, orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }] },
+        contract: {
+          include: {
+            buyer: true,
+            commercial: {
+              include: {
+                lines: true,
+                buyer: true,
+                documents: {
+                  include: { companyDoc: true, requirement: true },
+                  orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
+                },
+              },
+            },
+            proforma: { include: { lines: true } },
+          },
+        },
         events: { orderBy: { createdAt: 'desc' } },
         eudr: { include: { _count: { select: { plotLinks: true } } } },
       },
     });
     if (!shipment) return { error: 'Not found' };
 
-    // Company-level documents the engine says this shipment relies on, without
-    // duplicating them per shipment.
+    const invoice = shipment.contract?.commercial ?? null;
     const companyRequired = await this.prisma.complianceRequirement.findMany({
       where: { scope: { in: ['COMPANY', 'SHARED'] }, mandatory: true, effectiveUntil: null },
       orderBy: { name: 'asc' },
     });
-
-    // Match held documents by docType rather than the requirement FK. A company
-    // document recorded from the Compliance tab has no requirementId, and
-    // matching on the FK would report a document we demonstrably hold as missing.
     const held = await this.prisma.companyDocument.findMany({
       where: { status: { not: 'Revoked' } },
       orderBy: { issuedAt: 'desc' },
     });
     const heldByType = new Map<string, (typeof held)[number]>();
-    for (const d of held) {
-      if (!heldByType.has(d.docType)) heldByType.set(d.docType, d);
-    }
+    for (const d of held) if (!heldByType.has(d.docType)) heldByType.set(d.docType, d);
 
-    // Expiry warnings only matter for documents this shipment actually relies on,
-    // so compute them from the same required list rather than the whole company set.
     const expiringSoon = [...heldByType.entries()]
-      .filter(([docType]) => companyRequired.some((r: any) => r.documentType === docType))
+      .filter(([docType]) => companyRequired.some((r) => r.documentType === docType))
       .map(([, doc]) => doc)
       .filter((d) => d.expiresAt && new Date(d.expiresAt) <= addDays(new Date(), 60));
 
-    const checklist = shipment.documents.filter((d: any) => d.status !== 'NotApplicable');
-    const ready = checklist.filter((d: any) => d.status === 'Ready' || d.status === 'Submitted');
+    const checklist = (invoice?.documents ?? []).filter((d) => d.status !== 'NotApplicable');
+    const ready = checklist.filter((d) => d.status === 'Ready' || d.status === 'Submitted');
 
     return {
       ...shipment,
-      companyDocuments: companyRequired.map((r: any) => ({
+      // What the UI reads for the document pack and the destination.
+      commercialInvoice: invoice,
+      documents: invoice?.documents ?? [],
+      destinationCountryCode: invoice?.destinationCountryCode ?? null,
+      destinationCountryName: invoice?.destinationCountryName ?? null,
+      destinationMarket: invoice?.destinationMarket ?? null,
+      productForm: invoice?.productForm ?? null,
+      companyDocuments: companyRequired.map((r) => ({
         requirementId: r.id,
         documentType: r.documentType,
         name: r.name,
@@ -486,17 +661,16 @@ export class ShipmentsController {
         held: heldByType.get(r.documentType) ?? null,
       })),
       summary: {
-        required: checklist.filter((d: any) => d.mandatory).length,
+        required: checklist.filter((d) => d.mandatory).length,
         ready: ready.length,
         total: checklist.length,
-        // Split by verification so the UI can separate confirmed from assumed.
-        verified: checklist.filter((d: any) => d.verificationStatus === 'VERIFIED').length,
-        unverified: checklist.filter((d: any) => d.verificationStatus && d.verificationStatus !== 'VERIFIED').length,
-        expiringSoon: checklist.filter((d: any) => d.validUntil && new Date(d.validUntil) <= addDays(new Date(), 30)).length,
+        verified: checklist.filter((d) => d.verificationStatus === 'VERIFIED').length,
+        unverified: checklist.filter((d) => d.verificationStatus && d.verificationStatus !== 'VERIFIED').length,
+        expiringSoon: checklist.filter((d) => d.validUntil && new Date(d.validUntil) <= addDays(new Date(), 30)).length,
       },
       companyGaps: companyRequired
-        .filter((r: any) => !heldByType.has(r.documentType))
-        .map((r: any) => ({
+        .filter((r) => !heldByType.has(r.documentType))
+        .map((r) => ({
           requirementId: r.id,
           documentType: r.documentType,
           name: r.name,
@@ -520,7 +694,10 @@ export class ShipmentsController {
     const code = await this.numbering.next('shipment', body.date ?? new Date());
     const trackingNo = `PAQ-${code.replace(/\D/g, '').slice(-6) || String(Date.now()).slice(-6)}`;
     const contract = body.contractId
-      ? await this.prisma.salesContract.findUnique({ where: { id: body.contractId }, include: { buyer: true } })
+      ? await this.prisma.salesContract.findUnique({
+          where: { id: body.contractId },
+          include: { buyer: true, commercial: true },
+        })
       : null;
     const s = await this.prisma.shipment.create({
       data: {
@@ -536,97 +713,43 @@ export class ShipmentsController {
         address: body.address ?? contract?.buyer?.country ?? null,
         contact: body.contact ?? contract?.buyer?.phone ?? contract?.buyer?.email ?? null,
         itemDescription: body.itemDescription ?? 'Ethiopian green coffee (export)',
-        // Destination drives the compliance checklist. Pre-filled from the
-        // buyer but overridable, because customs cares where goods are released
-        // rather than where the buyer is registered.
-        destinationCountryCode: body.destinationCountryCode ?? null,
-        productForm: body.productForm ?? 'Green',
         note: body.note ?? null,
         notes: body.notes ?? null,
         status: 'Preparing',
         trackingStatus: 'Received',
-        // The checklist is NOT seeded here. It is derived from the destination
-        // country by the compliance engine, so it must be resolved after insert.
+        // No document rows are created here. The pack belongs to the commercial
+        // invoice. Attaching the shipment only refreshes the invoice's pack so
+        // the logistics link and transport mode are picked up.
         events: { create: { status: 'Received', location: body.port ?? 'Station', note: 'Consignment received and registered.' } },
       },
-      include: { documents: true, events: true },
+      include: { events: true },
     });
     await this.audit.log({ userId: actor.id, action: 'CREATE', entity: 'Shipment', entityId: s.id });
     await this.activity.log('Shipment', s.id, 'created', `Shipment ${s.code} created (${trackingNo})`, actor.id);
 
-    // Resolve the destination-driven document checklist. A failure here must not
-    // lose the shipment, so the error is logged rather than thrown.
-    let checklist: unknown = null;
-    try {
-      checklist = await this.compliance.applyToShipment(s.id, { regenerate: true });
-    } catch (e) {
+    if (contract?.commercial?.id) {
+      try {
+        await this.compliance.applyToInvoice(contract.commercial.id);
+      } catch (e) {
+        this.activity.log(
+          'Shipment',
+          s.id,
+          'note',
+          `Document pack refresh failed: ${(e as Error).message}`,
+          actor.id,
+        );
+      }
+    } else {
       this.activity.log(
         'Shipment',
         s.id,
         'note',
-        `Checklist resolution failed: ${(e as Error).message}. Run POST /shipments/${s.id}/compliance/apply to retry.`,
+        'Shipment created without a commercial invoice. Export documents are prepared once the proforma is converted.',
         actor.id,
       );
     }
 
-    return { ...s, checklist };
-  }
-
-  /**
-   * Recompute the checklist for the current destination. Safe to call repeatedly.
-   */
-  @Post(':id/compliance/apply')
-  @RequirePermissions('shipment.write')
-  async applyCompliance(@Param('id') id: string, @Body('regenerate') regenerate: boolean, @CurrentUser() actor: AuthUser) {
-    const result = await this.compliance.applyToShipment(id, { regenerate: !!regenerate });
-    await this.activity.log(
-      'Shipment',
-      id,
-      'note',
-      `Checklist resolved for ${result.destination ?? 'unspecified destination'}: ${result.created.length} added, ${result.updated.length} refreshed, ${result.retracted.length} no longer required`,
-      actor.id,
-    );
-    return result;
-  }
-
-  /** Change destination and re-resolve in one call. */
-  @Patch(':id/compliance/destination')
-  @RequirePermissions('shipment.write')
-  async setDestination(
-    @Param('id') id: string,
-    @Body() body: { destinationCountryCode?: string | null; productForm?: string | null },
-    @CurrentUser() actor: AuthUser,
-  ) {
-    const shipment = await this.prisma.shipment.update({
-      where: { id },
-      data: {
-        destinationCountryCode: body.destinationCountryCode ?? null,
-        productForm: body.productForm ?? 'Green',
-      },
-    });
-    const result = await this.compliance.applyToShipment(id);
-    await this.audit.log({
-      userId: actor.id,
-      action: 'SET_DESTINATION',
-      entity: 'Shipment',
-      entityId: id,
-      after: body,
-    });
-    await this.activity.log(
-      'Shipment',
-      id,
-      'status',
-      `Destination set to ${result.destination ?? 'unspecified'} — ${result.created.length} documents required, ${result.retracted.length} no longer applicable`,
-      actor.id,
-    );
-    return { shipment, ...result };
-  }
-
-  /** Link a company-level document to the checklist rows that depend on it. */
-  @Post(':id/compliance/link-company-doc')
-  @RequirePermissions('shipment.write')
-  async linkCompanyDoc(@Param('id') id: string, @Body('companyDocId') companyDocId: string) {
-    return this.compliance.linkCompanyDocument(id, companyDocId);
+    return s;
   }
 
   @Patch(':id/status')
@@ -669,8 +792,15 @@ export class ShipmentsController {
   @Patch('documents/:docId')
   @RequirePermissions('shipment.write')
   async updateDoc(@Param('docId') docId: string, @Body() body: { status?: string; reference?: string }) {
-    const doc = await this.prisma.shipmentDocument.update({ where: { id: docId }, data: body });
-    await this.activity.log('Shipment', doc.shipmentId, 'note', `${doc.docType}: ${body.status ?? doc.status}`);
+    const doc = await this.prisma.exportDocument.update({ where: { id: docId }, data: body });
+    // Log against the invoice that owns the pack, since that is where the work
+    // is recorded when no shipment exists yet.
+    await this.activity.log(
+      'CommercialInvoice',
+      doc.commercialInvoiceId,
+      'note',
+      `${doc.docType}: ${body.status ?? doc.status}`,
+    );
     return doc;
   }
 }

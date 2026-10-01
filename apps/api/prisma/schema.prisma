@@ -609,6 +609,17 @@ model CommercialInvoice {
   fobPricePerKg Decimal? @db.Decimal(14, 4)
   incoterm      String   @default("FOB")
   hsCode        String?  @default("0901.11")
+  // Commercial terms carry the destination. The export document pack is
+  // assembled against the invoice, not the shipment: the invoice is what the
+  // bank, customs, and the buyer all key on, and it is produced by the
+  // proforma -> commercial conversion that triggers the documentation work.
+  destinationCountryCode String? // ISO-3166 alpha-2
+  destinationCountryName String?
+  destinationMarket      String? // EU | US_JP_CA | AfCFTA | GSP | OTHER
+  productForm            String   @default("Green") // Green | Roasted | Soluble | Liquid
+  portLoading            String?
+  portDischarge          String?
+  paymentTerms           String?
   status        String   @default("Draft") // Draft | Issued | Sent | Paid | Cancelled
   notes         String?
   createdAt     DateTime @default(now())
@@ -618,7 +629,9 @@ model CommercialInvoice {
   proforma ProformaInvoice?   @relation(fields: [proformaId], references: [id])
   contract SalesContract?      @relation(fields: [contractId], references: [id])
   lines    CommercialInvoiceLine[]
+  documents ExportDocument[]
 
+  @@index([destinationCountryCode])
   @@map("commercial_invoices")
 }
 
@@ -644,13 +657,9 @@ model Shipment {
   date        DateTime?
   mode        String   @default("Sea") // Sea | Air
   port        String?  @default("Djibouti")
-  // Destination country drives which compliance rules apply. Pre-filled from
-  // the buyer but overridable, because customs cares where goods are released
-  // rather than where the buyer is registered.
-  destinationCountryCode String? // ISO-3166 alpha-2
-  destinationCountryName String?
-  destinationMarket      String? // EU | US_JP_CA | AfCFTA | GSP | OTHER
-  productForm            String   @default("Green") // Green | Roasted | Soluble | Liquid
+  // Destination and the document pack live on the commercial invoice. The
+  // shipment reaches them via contract.commercial so there is one source of
+  // truth, not a copy that can drift.
   sealNo     String?
   billOfLading String?
   containerNo String?
@@ -666,11 +675,10 @@ model Shipment {
   updatedAt   DateTime @updatedAt
 
   contract SalesContract? @relation(fields: [contractId], references: [id])
-  documents ShipmentDocument[]
+  documents ExportDocument[]
   events    ShipmentEvent[]
   eudr      EudrStatement?
 
-  @@index([destinationCountryCode])
   @@map("shipments")
 }
 
@@ -688,9 +696,17 @@ model ShipmentEvent {
   @@map("shipment_events")
 }
 
-model ShipmentDocument {
+// The export document pack. Anchored on the commercial invoice because that is
+// the commercial transaction the documents describe; the invoice is created by
+// the proforma conversion, which is what triggers documentation work.
+//
+// shipmentId is an optional logistics link. It is set when a shipment exists so
+// carrier documents such as the bill of lading can be reached from tracking,
+// but the invoice remains the owner of the pack.
+model ExportDocument {
   id          String  @id @default(cuid())
-  shipmentId  String
+  commercialInvoiceId String
+  shipmentId  String?
   docType     String
   status      String  @default("Pending") // NotApplicable | Pending | InProgress | Ready | Submitted | Rejected
   reference   String?
@@ -729,14 +745,16 @@ model ShipmentDocument {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  shipment   Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  commercialInvoice CommercialInvoice @relation(fields: [commercialInvoiceId], references: [id], onDelete: Cascade)
+  shipment   Shipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   requirement ComplianceRequirement? @relation(fields: [requirementId], references: [id])
   companyDoc CompanyDocument? @relation(fields: [companyDocId], references: [id])
 
-  @@unique([shipmentId, docType])
-  @@index([shipmentId, status])
+  @@unique([commercialInvoiceId, docType])
+  @@index([commercialInvoiceId, status])
+  @@index([shipmentId])
   @@index([requirementId])
-  @@map("shipment_documents")
+  @@map("export_documents")
 }
 
 // ───────────────────────────── Company-level documents ─────────────────────────────
@@ -759,7 +777,7 @@ model CompanyDocument {
   updatedAt    DateTime @updatedAt
 
   requirement ComplianceRequirement? @relation(fields: [requirementId], references: [id])
-  shipments   ShipmentDocument[]
+  exportDocuments ExportDocument[]
 
   @@index([docType])
   @@index([expiresAt])
@@ -824,7 +842,7 @@ model ComplianceRequirement {
   updatedAt      DateTime @updatedAt
 
   profile          CountryComplianceProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  shipmentDocuments ShipmentDocument[]
+  exportDocuments ExportDocument[]
   companyDocuments  CompanyDocument[]
   templates        DocumentTemplate[]
 
