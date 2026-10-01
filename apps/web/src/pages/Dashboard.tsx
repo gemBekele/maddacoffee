@@ -2,8 +2,6 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   XAxis,
@@ -15,6 +13,8 @@ import {
   Cell,
   CartesianGrid,
   Legend,
+  AreaChart,
+  Area,
 } from 'recharts';
 import {
   Coffee,
@@ -31,6 +31,10 @@ import {
   Wallet,
   Receipt,
   RefreshCw,
+  Clock,
+  FileCheck,
+  Layers,
+  CheckCircle2,
 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, StatusPill } from '@/components/ui';
@@ -43,19 +47,33 @@ import { formatKg, formatMoney } from '@madda/shared';
 const PIE_COLORS = ['#2a3f26', '#c08a5a', '#4c6b46', '#ad7846', '#6f8f68', '#dfae79', '#9fb699', '#8f5f38', '#35502f'];
 
 const RANGES = [
-  { key: '30', label: '30D', days: 30 },
-  { key: '90', label: '90D', days: 90 },
-  { key: '180', label: '6M', days: 180 },
-  { key: '365', label: '12M', days: 365 },
-  { key: 'all', label: 'All', days: null },
+  { key: '30', label: '1M', days: 30, full: 'last 30 days' },
+  { key: '90', label: '3M', days: 90, full: 'last 3 months' },
+  { key: '180', label: '6M', days: 180, full: 'last 6 months' },
+  { key: '365', label: '1Y', days: 365, full: 'last 12 months' },
+  { key: 'all', label: 'All', days: null, full: 'all time' },
+];
+
+/** Timeframes offered on the market card. Deliberately separate from the page. */
+const MARKET_RANGES = [
+  { key: '1mo', label: '1M', full: '1 month' },
+  { key: '3mo', label: '3M', full: '3 months' },
+  { key: '6mo', label: '6M', full: '6 months' },
+  { key: '1y', label: '1Y', full: '1 year' },
 ];
 
 function isoDaysAgo(days: number) {
-  const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/** A KPI card: headline figure, a supporting line, and a trend line. */
+/**
+ * A KPI card.
+ *
+ * The trend line sits to the right of the figure rather than underneath it, so
+ * the number and its direction read as one unit and the card stays short. Cards
+ * only carry a sparkline where the shape carries information — a flat staffing
+ * count or a buyer total does not need one.
+ */
 function KpiCard({
   label,
   value,
@@ -78,17 +96,61 @@ function KpiCard({
   const toneClass =
     subTone === 'up' ? 'text-emerald-600' : subTone === 'down' ? 'text-rose-600' : 'text-slate-400';
   return (
-    <Card className="flex flex-col p-4">
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-xs font-medium text-slate-500">{label}</span>
-        {icon && <span className="text-slate-300">{icon}</span>}
-      </div>
-      <div className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900">{value}</div>
-      <div className={`mt-0.5 truncate text-[11px] ${toneClass}`}>{sub ?? '\u00a0'}</div>
-      <div className="mt-auto pt-2.5">
-        <Sparkline data={spark ?? []} colour={colour} formatValue={formatValue} />
+    <Card className="p-4">
+      <div className="flex items-stretch gap-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-xs font-medium text-slate-500">{label}</span>
+            {icon && <span className="shrink-0 text-slate-300">{icon}</span>}
+          </div>
+          <div className="mt-1 text-xl font-semibold tracking-tight text-slate-900">{value}</div>
+          <div className={`mt-auto truncate pt-0.5 text-[11px] ${toneClass}`}>{sub ?? '\u00a0'}</div>
+        </div>
+        {spark && spark.length > 0 && (
+          <div className="flex w-20 shrink-0 items-center border-l border-slate-100 pl-3">
+            <div className="w-full">
+              <Sparkline data={spark} colour={colour} height={40} formatValue={formatValue} />
+            </div>
+          </div>
+        )}
       </div>
     </Card>
+  );
+}
+
+/** A pending-work tile. These are things to act on, not trends. */
+function PendingTile({
+  label,
+  value,
+  icon,
+  href,
+  tone,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  href: string;
+  tone: 'amber' | 'blue';
+}) {
+  const palette =
+    tone === 'amber'
+      ? 'border-amber-200 bg-amber-50 text-amber-900'
+      : 'border-sky-200 bg-sky-50 text-sky-900';
+  const zero = value === 0;
+  return (
+    <a
+      href={href}
+      className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition hover:brightness-[0.98] ${
+        zero ? 'border-slate-200 bg-slate-50 text-slate-500' : palette
+      }`}
+    >
+      <span className={zero ? 'text-slate-400' : ''}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[11px] font-medium opacity-80">{label}</span>
+        <span className="block text-lg font-semibold leading-tight">{value}</span>
+      </span>
+      {zero && <span className="text-[10px] font-medium uppercase opacity-60">clear</span>}
+    </a>
   );
 }
 
@@ -96,6 +158,7 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const [rangeKey, setRangeKey] = useState('90');
   const [stationId, setStationId] = useState('');
+  const [marketRange, setMarketRange] = useState('3mo');
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
   const from = range.days ? isoDaysAgo(range.days) : '2000-01-01';
@@ -109,12 +172,34 @@ export function DashboardPage() {
     },
   });
 
-  const { data: profiles } = useQuery({
+  // The market has its own timeframe, independent of the business period.
+  const { data: marketData, isFetching: marketFetching } = useQuery({
+    queryKey: ['market', 'coffee', marketRange],
+    queryFn: async () => (await api.get(`/market/coffee?range=${marketRange}`)).data,
+  });
+
+  const { data: stations } = useQuery({
     queryKey: ['stations', 'list'],
     queryFn: async () => (await api.get('/stations')).data,
   });
 
-  // Turn the parallel daily series into row objects for recharts.
+  // The market endpoint returns `latest` as a point object and `points` as the
+  // series; the card wants a flat price. Normalise once, and leave it null
+  // while loading so the card shows a placeholder rather than $NaN.
+  const market = useMemo(() => {
+    if (!marketData) return null;
+    const latest = marketData.latest;
+    const price = latest ? Number(latest.c ?? latest) : null;
+    if (price == null || !Number.isFinite(price)) return null;
+    return {
+      price,
+      points: marketData.points ?? [],
+      changePct: Number.isFinite(Number(marketData.rangeChangePct)) ? Number(marketData.rangeChangePct) : null,
+      source: marketData.source ?? 'yahoo',
+      stale: !!marketData.stale,
+    };
+  }, [marketData]);
+
   const trendRows = useMemo(() => {
     const tr = data?.trends;
     if (!tr) return [];
@@ -142,8 +227,9 @@ export function DashboardPage() {
   }
 
   const s = data.summary;
-  const market = data.market;
   const money = (v: number | null | undefined) => (v == null ? '—' : formatMoney(v, 'ETB'));
+  const marketRangeLabel = MARKET_RANGES.find((r) => r.key === marketRange)?.full ?? '3 months';
+  const insight = data.expenseInsight;
 
   const stationColumns = [
     { key: 'name', header: 'Station', primary: true },
@@ -153,10 +239,8 @@ export function DashboardPage() {
       key: 'yieldPct',
       header: 'Yield',
       render: (r: any) => (r.yieldPct == null ? '—' : `${r.yieldPct.toFixed(1)}%`),
-      // Colour the outlier rather than every cell: a yield far off the 18-22%
-      // band is the thing worth noticing.
       renderClass: (r: any) =>
-        r.yieldPct != null && (r.yieldPct < 15 || r.yieldPct > 26) ? 'text-amber-700 font-medium' : '',
+        r.yieldPct != null && (r.yieldPct < 18 || r.yieldPct > 22) ? 'text-amber-700 font-medium' : '',
     },
     { key: 'purchaseCost', header: 'Cost', render: (r: any) => money(r.purchaseCost) },
     { key: 'expenses', header: 'Expenses', render: (r: any) => money(r.expenses) },
@@ -183,19 +267,6 @@ export function DashboardPage() {
       })),
     );
 
-  const exportTrend = () =>
-    exportRows(
-      `madda-daily-trend-${data.filters.from}-to-${data.filters.to}.csv`,
-      trendRows.map((r: any) => ({
-        Date: r.day,
-        'Cherry kg': r.cherryKg.toFixed(2),
-        'Green kg': r.greenKg.toFixed(2),
-        'Expenses ETB': r.expenses.toFixed(2),
-        'Revenue ETB': r.revenue.toFixed(2),
-        'Inventory kg': r.inventoryKg.toFixed(2),
-      })),
-    );
-
   return (
     <div>
       <div className="no-print">
@@ -215,7 +286,6 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Print-only heading: a printed dashboard needs to say what it is. */}
       <div className="hidden print:block">
         <h1 className="text-lg font-semibold text-slate-900">Ancient Halo Coffee Export — Dashboard</h1>
         <p className="mb-4 text-xs text-slate-500">
@@ -225,68 +295,110 @@ export function DashboardPage() {
       </div>
 
       {/* ── filters ───────────────────────────────────────────────────── */}
-      <div className="no-print mb-4 flex flex-wrap items-center gap-2">
-        <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5">
-          {RANGES.map((r) => (
-            <button
-              key={r.key}
-              onClick={() => setRangeKey(r.key)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                rangeKey === r.key ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-              }`}
+      <Card className="no-print mb-4 p-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Period</span>
+            <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRangeKey(r.key)}
+                  title={r.full}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    rangeKey === r.key
+                      ? 'bg-white text-brand-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <span className="hidden h-6 w-px bg-slate-200 sm:block" />
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Station</span>
+            <select
+              value={stationId}
+              onChange={(e) => setStationId(e.target.value)}
+              className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
             >
-              {r.label}
+              <option value="">All stations</option>
+              {(stations ?? []).map((st: any) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </select>
+            {stationId && (
+              <button
+                onClick={() => setStationId('')}
+                className="text-[11px] text-slate-400 underline hover:text-slate-600"
+              >
+                clear
+              </button>
+            )}
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-[11px] text-slate-400">
+              {range.full} · {data.filters.from} → {data.filters.to}
+            </span>
+            <button
+              onClick={() => refetch()}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+              title="Refresh"
+            >
+              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
             </button>
-          ))}
+          </div>
         </div>
-
-        <select
-          value={stationId}
-          onChange={(e) => setStationId(e.target.value)}
-          className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700"
-        >
-          <option value="">{t('dashboard.allStations')}</option>
-          {(profiles ?? []).map((st: any) => (
-            <option key={st.id} value={st.id}>
-              {st.name}
-            </option>
-          ))}
-        </select>
-
-        <span className="text-xs text-slate-400">
-          {data.filters.from} → {data.filters.to}
-        </span>
-
-        <button
-          onClick={() => refetch()}
-          className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
-          title="Refresh"
-        >
-          <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-        </button>
-      </div>
+      </Card>
 
       {data.stationScoped && (
-        <p className="no-print mb-3 text-[11px] text-slate-400">{t('dashboard.stationScopeNote')}</p>
+        <p className="no-print -mt-2 mb-3 text-[11px] text-slate-400">{t('dashboard.stationScopeNote')}</p>
       )}
 
       {/* ── cards ─────────────────────────────────────────────────────── */}
       <div className="grid gap-3 sm:gap-4 lg:grid-cols-4">
-        {/* Market: two rows tall, so it reads as the headline figure. */}
+        {/* Market: two rows tall, with its own timeframe. */}
         <Card className="print-keep-colour flex flex-col border-brand-700 bg-brand-700 p-5 text-white lg:row-span-2">
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-2">
             <div>
               <div className="text-xs font-medium uppercase tracking-wide text-brand-200">
                 {t('dashboard.market')}
               </div>
               <div className="text-[11px] text-brand-300">{t('dashboard.marketSubtitle')}</div>
             </div>
-            <Activity size={16} className="text-brand-300" />
+            <Activity size={16} className="shrink-0 text-brand-300" />
+          </div>
+
+          {/* Timeframe control lives on the card so it can differ from the page. */}
+          <div className="no-print mt-2.5 flex gap-0.5 rounded-lg bg-brand-800/60 p-0.5">
+            {MARKET_RANGES.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setMarketRange(r.key)}
+                className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                  marketRange === r.key ? 'bg-brand-50 text-brand-800' : 'text-brand-200 hover:text-white'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-brand-300">
+            <span>Change over {marketRangeLabel}</span>
+            <span className="text-brand-500">·</span>
+            <span>ICE Arabica Coffee C, front month</span>
           </div>
 
           {market ? (
             <>
-              <div className="mt-3 flex items-end gap-2">
+              <div className="mt-2.5 flex items-end gap-2">
                 <span className="text-4xl font-semibold tracking-tight">
                   ${market.price?.toFixed(2) ?? '—'}
                 </span>
@@ -294,21 +406,20 @@ export function DashboardPage() {
               </div>
 
               <div className="mt-1 flex items-center gap-1.5 text-xs">
-                {market.changePct >= 0 ? (
+                {(market.changePct ?? 0) >= 0 ? (
                   <TrendingUp size={13} className="text-emerald-300" />
                 ) : (
                   <TrendingDown size={13} className="text-rose-300" />
                 )}
-                <span className={market.changePct >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
-                  {market.changePct >= 0 ? '+' : ''}
-                  {market.changePct?.toFixed(2)}%
+                <span className={(market.changePct ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                  {market.changePct == null ? '—' : `${market.changePct >= 0 ? '+' : ''}${market.changePct.toFixed(2)}%`}
                 </span>
-                <span className="text-brand-300">this period</span>
+                <span className="text-brand-300">over {marketRangeLabel}</span>
               </div>
 
-              <div className="mt-3">
+              <div className="mt-2.5">
                 <Sparkline
-                  data={market.spark.map((p: any) => ({ value: p.c }))}
+                  data={(market.points ?? []).map((p: any) => ({ value: p.c }))}
                   colour="#dfae79"
                   height={44}
                   formatValue={(v) => `$${v.toFixed(3)}/kg`}
@@ -316,7 +427,7 @@ export function DashboardPage() {
               </div>
 
               <div className="mt-auto pt-3">
-                {s.avgSalePricePerKg != null && (
+                {s.avgSalePricePerKg != null && market.price != null && (
                   <div className="flex items-baseline justify-between border-t border-brand-600 pt-2.5">
                     <span className="text-[11px] text-brand-200">{t('dashboard.vsOurPrice')}</span>
                     <span
@@ -329,8 +440,9 @@ export function DashboardPage() {
                     </span>
                   </div>
                 )}
-                <div className="mt-1 text-[10px] text-brand-300">
-                  {market.stale ? 'cached' : market.source} · benchmark, indicative
+                <div className="mt-1 flex items-center gap-1.5 text-[10px] text-brand-300">
+                  {marketFetching && <RefreshCw size={9} className="animate-spin" />}
+                  {market.stale ? 'cached' : market.source} · indicative benchmark
                 </div>
               </div>
             </>
@@ -341,6 +453,7 @@ export function DashboardPage() {
           )}
         </Card>
 
+        {/* Supply: a trend matters for all three. */}
         <KpiCard
           label={t('dashboard.cherryPurchased')}
           value={formatKg(s.cherryPurchasedKg)}
@@ -367,6 +480,7 @@ export function DashboardPage() {
           icon={<Package size={18} />}
         />
 
+        {/* Commercial: revenue and profit move, so they carry a trend. */}
         <KpiCard
           label={t('dashboard.salesRevenue')}
           value={money(s.salesRevenue)}
@@ -374,14 +488,6 @@ export function DashboardPage() {
           spark={spark('revenue')}
           colour="#35502f"
           icon={<Wallet size={18} />}
-        />
-        <KpiCard
-          label={t('dashboard.purchaseCost')}
-          value={money(s.purchaseCost)}
-          sub={`${formatKg(s.cherryPurchasedKg)} cherry`}
-          spark={spark('purchaseCost')}
-          colour="#c08a5a"
-          icon={<Receipt size={18} />}
         />
         <KpiCard
           label={t('dashboard.grossProfit')}
@@ -392,21 +498,23 @@ export function DashboardPage() {
           colour="#ad7846"
           icon={s.grossProfit >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
         />
-
+        {/* Purchase cost is a large recurring outflow, so its shape is worth showing. */}
         <KpiCard
-          label={t('dashboard.stationExpenses')}
-          value={money(s.stationExpenses)}
-          sub={`${data.expenseByCategory.length} categories`}
-          spark={spark('expenses')}
-          colour="#d09455"
+          label={t('dashboard.purchaseCost')}
+          value={money(s.purchaseCost)}
+          sub={`${formatKg(s.cherryPurchasedKg)} cherry`}
+          spark={spark('purchaseCost')}
+          colour="#c08a5a"
           icon={<Receipt size={18} />}
         />
+
+        {/* Derived measures: a single ratio has no meaningful daily shape, so no
+            sparkline. A flat line would imply a stability that is not measured. */}
         <KpiCard
           label={t('dashboard.yield')}
           value={s.yieldPct != null ? `${s.yieldPct.toFixed(1)}%` : '—'}
           sub="expected 18–22% for green coffee"
           subTone={s.yieldPct != null && (s.yieldPct < 18 || s.yieldPct > 22) ? 'down' : 'muted'}
-          spark={spark('greenKg')}
           colour="#6f8f68"
           icon={<Percent size={18} />}
         />
@@ -414,103 +522,156 @@ export function DashboardPage() {
           label={t('dashboard.activeStations')}
           value={String(s.activeStations)}
           sub={`${data.stationPerformance.length} reporting activity`}
-          spark={spark('cherryKg')}
           colour="#4c6b46"
           icon={<Warehouse size={18} />}
+        />
+        <KpiCard
+          label="Daily expense rate"
+          value={insight && range.days ? money(insight.total / range.days) : money(insight?.total)}
+          sub={`${t('dashboard.stationExpenses')}: ${money(s.stationExpenses)}`}
+          colour="#d09455"
+          icon={<Receipt size={18} />}
         />
         <KpiCard
           label={t('dashboard.topBuyers')}
           value={String(data.topBuyers.length)}
           sub={data.topBuyers[0] ? `${data.topBuyers[0].name} leads` : 'no sales yet'}
-          spark={spark('revenue')}
           colour="#8f5f38"
           icon={<Users size={18} />}
         />
       </div>
 
-      {/* ── pending ───────────────────────────────────────────────────── */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <StatusPill status={`Pending payments: ${data.pending.payments}`} />
-        <StatusPill status={`Pending expenses: ${data.pending.expenses}`} />
-        <StatusPill status={`Active lots: ${data.pending.activeLots}`} />
-        <StatusPill status={`Completed batches: ${data.pending.completedBatches}`} />
+      {/* ── pending work ──────────────────────────────────────────────── */}
+      <div className="mt-4">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          Waiting on someone
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <PendingTile
+            label="Pending payments"
+            value={data.pending.payments}
+            icon={<Clock size={17} />}
+            href="/purchases"
+            tone="amber"
+          />
+          <PendingTile
+            label="Pending expenses"
+            value={data.pending.expenses}
+            icon={<Receipt size={17} />}
+            href="/expenses"
+            tone="amber"
+          />
+          <PendingTile
+            label="Active lots"
+            value={data.pending.activeLots}
+            icon={<Layers size={17} />}
+            href="/inventory"
+            tone="blue"
+          />
+          <PendingTile
+            label="Completed batches"
+            value={data.pending.completedBatches}
+            icon={<CheckCircle2 size={17} />}
+            href="/processing"
+            tone="blue"
+          />
+        </div>
       </div>
 
-      {/* ── trends ────────────────────────────────────────────────────── */}
-      <Card className="mt-5 p-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700">{t('dashboard.trends')}</h3>
-            <p className="text-xs text-slate-400">
-              {data.filters.from} to {data.filters.to}
-            </p>
+      {/* ── expense insight ───────────────────────────────────────────── */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-2">
+          <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700">Operating expense</h3>
+              <p className="text-xs text-slate-400">
+                Non-cherry spend over {range.full}
+                {insight?.overheadPerKgGreen != null
+                  ? ` · ${money(insight.overheadPerKgGreen)} per kg of green produced`
+                  : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-semibold text-slate-900">{money(insight?.total)}</div>
+              <div
+                className={`text-[11px] font-medium ${
+                  insight?.trend === 'rising'
+                    ? 'text-rose-600'
+                    : insight?.trend === 'falling'
+                      ? 'text-emerald-600'
+                      : 'text-slate-400'
+                }`}
+              >
+                {insight?.trend === 'rising'
+                  ? 'rising through the period'
+                  : insight?.trend === 'falling'
+                    ? 'easing through the period'
+                    : 'steady through the period'}
+              </div>
+            </div>
           </div>
-          <button onClick={exportTrend} className="no-print btn-ghost h-8 px-2.5 text-xs">
-            <Download size={13} /> CSV
-          </button>
-        </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trendRows} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-              <defs>
-                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2a3f26" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="#2a3f26" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#c08a5a" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="#c08a5a" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef1ee" vertical={false} />
-              <XAxis
-                dataKey="day"
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
-                axisLine={{ stroke: '#e5e7eb' }}
-                tickLine={false}
-                minTickGap={40}
-                tickFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' })}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
-                width={44}
-              />
-              <Tooltip
-                formatter={(v: any, name: any) => [formatMoney(Number(v), 'ETB'), name]}
-                labelFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} iconType="plainline" />
-              <Area
-                type="monotone"
-                dataKey="revenue"
-                name={t('dashboard.salesRevenue')}
-                stroke="#2a3f26"
-                strokeWidth={2}
-                fill="url(#gRev)"
-                isAnimationActive={false}
-              />
-              <Area
-                type="monotone"
-                dataKey="expenses"
-                name={t('dashboard.stationExpenses')}
-                stroke="#c08a5a"
-                strokeWidth={2}
-                fill="url(#gExp)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {/* Cumulative spend says how the period has accumulated, which a
+              daily series of small figures makes hard to read. */}
+          <div className="mt-2 h-32">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendRows.map((r: any, i: number) => ({ day: r.day, cum: insight?.cumulativeSeries?.[i] ?? 0 }))}>
+                <defs>
+                  <linearGradient id="gCum" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#c08a5a" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#c08a5a" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="day"
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  axisLine={{ stroke: '#e5e7eb' }}
+                  tickLine={false}
+                  minTickGap={40}
+                  tickFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+                  width={40}
+                />
+                <Tooltip
+                  formatter={(v: any) => [formatMoney(Number(v), 'ETB'), 'Cumulative']}
+                  labelFormatter={(d) => new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cum"
+                  stroke="#ad7846"
+                  strokeWidth={1.75}
+                  fill="url(#gCum)"
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {insight?.topCategory && (
+            <p className="mt-3 text-xs text-slate-500">
+              Largest category is{' '}
+              <span className="font-medium text-slate-700">{insight.topCategory}</span> at{' '}
+              {money(insight.topCategoryAmount)} ({insight.topCategorySharePct?.toFixed(0)}% of spend)
+              {insight.significantCategories?.length > 1
+                ? `, ahead of ${insight.significantCategories
+                    .slice(1)
+                    .map((c: any) => c.category)
+                    .join(' and ')}.`
+                : '.'}
+            </p>
+          )}
+        </Card>
+
         <Card className="p-5">
           <h3 className="mb-4 text-sm font-semibold text-slate-700">{t('dashboard.expenseByCategory')}</h3>
-          <div className="h-60">
+          <div className="h-52">
             {data.expenseByCategory.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -518,20 +679,20 @@ export function DashboardPage() {
                     data={data.expenseByCategory}
                     dataKey="amount"
                     nameKey="category"
-                    innerRadius={46}
-                    outerRadius={82}
+                    innerRadius={42}
+                    outerRadius={74}
                     paddingAngle={2}
-                    // Without this the sectors stay at their initial zero angle
-                    // until the entry animation runs, which never happens in a
-                    // headless render and looks like an empty chart.
                     isAnimationActive={false}
                   >
                     {data.expenseByCategory.map((_: any, i: number) => (
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: any) => formatMoney(Number(v), 'ETB')} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v: any) => formatMoney(Number(v), 'ETB')}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -539,10 +700,13 @@ export function DashboardPage() {
             )}
           </div>
         </Card>
+      </div>
 
+      {/* ── breakdowns and tables ─────────────────────────────────────── */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="p-5">
           <h3 className="mb-4 text-sm font-semibold text-slate-700">{t('dashboard.greenByProcess')}</h3>
-          <div className="h-60">
+          <div className="h-56">
             {data.greenByProcess.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.greenByProcess} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
@@ -558,10 +722,7 @@ export function DashboardPage() {
             )}
           </div>
         </Card>
-      </div>
 
-      {/* ── tables ────────────────────────────────────────────────────── */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <h3 className="text-sm font-semibold text-slate-700">{t('dashboard.stationPerformance')}</h3>
@@ -571,39 +732,38 @@ export function DashboardPage() {
           </div>
           <DataTable columns={stationColumns as any} rows={data.stationPerformance} />
         </Card>
-
-        <Card className="p-5">
-          <h3 className="mb-3 text-sm font-semibold text-slate-700">{t('dashboard.topBuyers')}</h3>
-          {data.topBuyers.length ? (
-            <div className="space-y-2.5">
-              {data.topBuyers.map((b: any, i: number) => {
-                const share = s.salesRevenueUsd > 0 ? b.amount / s.salesRevenueUsd : 0;
-                return (
-                  <div key={b.name + i}>
-                    <div className="flex items-baseline justify-between text-xs">
-                      <span className="truncate font-medium text-slate-700">{b.name}</span>
-                      <span className="ml-2 shrink-0 text-slate-500">
-                        {formatMoney(b.amount, 'USD')}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-copper-500"
-                        style={{ width: `${Math.max(2, Math.round(share * 100))}%` }}
-                      />
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-slate-400">
-                      {b.country ?? '—'} · {formatKg(b.kg)} · {b.invoices} invoice{b.invoices === 1 ? '' : 's'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="grid h-32 place-items-center text-xs text-slate-400">{t('dashboard.noData')}</div>
-          )}
-        </Card>
       </div>
+
+      <Card className="mt-4 p-5">
+        <h3 className="mb-3 text-sm font-semibold text-slate-700">{t('dashboard.topBuyers')}</h3>
+        {data.topBuyers.length ? (
+          <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+            {data.topBuyers.map((b: any, i: number) => {
+              const share = s.salesRevenueUsd > 0 ? b.amount / s.salesRevenueUsd : 0;
+              return (
+                <div key={b.name + i}>
+                  <div className="flex items-baseline justify-between text-xs">
+                    <span className="truncate font-medium text-slate-700">{b.name}</span>
+                    <span className="ml-2 shrink-0 text-slate-500">{formatMoney(b.amount, 'USD')}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-copper-500"
+                      style={{ width: `${Math.max(2, Math.round(share * 100))}%` }}
+                    />
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-slate-400">
+                    {b.country ?? '—'} · {formatKg(b.kg)} · {b.invoices} invoice{b.invoices === 1 ? '' : 's'} ·{' '}
+                    {(share * 100).toFixed(0)}% of revenue
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid h-24 place-items-center text-xs text-slate-400">{t('dashboard.noData')}</div>
+        )}
+      </Card>
     </div>
   );
 }

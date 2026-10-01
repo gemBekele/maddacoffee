@@ -56,6 +56,19 @@ const CACHE_TTL_MS: Record<string, number> = {
   mo: 7 * 24 * 60 * 60_000,
 };
 
+/**
+ * Cache key for a request.
+ *
+ * Several ranges share an upstream interval — 1mo, 3mo, 6mo and 1y are all
+ * daily candles. Keying the cache on the interval alone made them collide: the
+ * first range fetched wrote a series of its own length, and every other range
+ * then served that same series, so asking for a year returned a month. The
+ * range is part of the key so each length is stored and served separately.
+ */
+function cacheKey(range: Range): string {
+  return `${RANGE_CONFIG[range]?.interval ?? '1d'}:${range}`;
+}
+
 export interface QuotePoint {
   t: string; // ISO timestamp
   o: number | null;
@@ -231,11 +244,12 @@ export class MarketService {
   async benchmark(range: Range) {
     const cfg = RANGE_CONFIG[range] ?? RANGE_CONFIG['1mo'];
     const interval = cfg.interval;
+    const key = cacheKey(range);
     const ttl = CACHE_TTL_MS[interval] ?? CACHE_TTL_MS['1d'];
-    const age = await this.cacheAge('KC=F', interval);
+    const age = await this.cacheAge('KC=F', key);
 
     if (age !== null && age < ttl) {
-      const points = await this.cached('KC=F', interval);
+      const points = await this.cached('KC=F', key);
       if (points.length) {
         return this.series('KC=F', interval, points, false, 'yahoo', age);
       }
@@ -243,16 +257,16 @@ export class MarketService {
 
     try {
       const points = await this.fetchYahoo(range);
-      await this.store('KC=F', interval, 'yahoo', points);
-      await this.logFetch('yahoo', 'KC=F', interval, true, points.length);
+      await this.store('KC=F', key, 'yahoo', points);
+      await this.logFetch('yahoo', 'KC=F', key, true, points.length);
       return this.series('KC=F', interval, points, false, 'yahoo', 0);
     } catch (e) {
       const msg = (e as Error).message;
       this.logger.warn(`Yahoo KC=F fetch failed for ${range}: ${msg}`);
-      await this.logFetch('yahoo', 'KC=F', interval, false, 0, msg);
+      await this.logFetch('yahoo', 'KC=F', key, false, 0, msg);
 
       // Fall back to the cached series, whatever its age.
-      const points = await this.cached('KC=F', interval);
+      const points = await this.cached('KC=F', key);
       if (points.length) {
         return this.series('KC=F', interval, points, true, 'yahoo', age ?? 0);
       }
@@ -260,11 +274,11 @@ export class MarketService {
       // Nothing cached for this interval: try FRED so the chart is not empty.
       try {
         const fred = await this.fetchFred();
-        await this.store('KC=F', 'mo', 'fred', fred);
-        await this.logFetch('fred', 'KC=F', 'mo', true, fred.length);
+        await this.store('KC=F', 'mo:fred', 'fred', fred);
+        await this.logFetch('fred', 'KC=F', 'mo:fred', true, fred.length);
         return this.series('KC=F', 'mo', fred, false, 'fred', 0);
       } catch (e2) {
-        await this.logFetch('fred', 'KC=F', 'mo', false, 0, (e2 as Error).message);
+        await this.logFetch('fred', 'KC=F', 'mo:fred', false, 0, (e2 as Error).message);
         return this.series('KC=F', interval, [], false, 'none', null);
       }
     }

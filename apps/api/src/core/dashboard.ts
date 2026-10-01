@@ -210,6 +210,36 @@ export class DashboardController {
     const byCategory = new Map<string, number>();
     for (const e of expenses) byCategory.set(e.category, (byCategory.get(e.category) ?? 0) + Number(e.amount));
 
+    // Expense mix: cumulative spend across the period with the largest
+    // categories called out, plus a share figure for the top one. A flat
+    // category breakdown says what was spent; this says how concentrated it is
+    // and how it has accumulated.
+    const categoryRows = [...byCategory.entries()]
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount);
+    const topCategory = categoryRows[0] ?? null;
+
+    let expenseCumulative = 0;
+    const expenseCumulativeSeries = expenseSeries.values.map((v) => {
+      expenseCumulative += v;
+      return expenseCumulative;
+    });
+    // A category is worth naming as a driver when it carries a meaningful share.
+    const significantCategories = categoryRows.filter(
+      (c) => expenseTotal > 0 && (c.amount / expenseTotal) * 100 >= 12,
+    );
+    const midPeriod = Math.floor(expenseSeries.values.length / 2);
+    const firstHalf = expenseSeries.values.slice(0, midPeriod).reduce((a, b) => a + b, 0);
+    const secondHalf = expenseSeries.values.slice(midPeriod).reduce((a, b) => a + b, 0);
+    const trend =
+      firstHalf === 0 && secondHalf === 0
+        ? 'flat'
+        : secondHalf > firstHalf * 1.15
+          ? 'rising'
+          : secondHalf < firstHalf * 0.85
+            ? 'falling'
+            : 'steady';
+
     const byProcess = new Map<string, number>();
     for (const b of batches) {
       const p = b.process ?? 'Other';
@@ -328,7 +358,25 @@ export class DashboardController {
           (r, i) => r - (purchaseCostSeries.values[i] ?? 0) - (expenseSeries.values[i] ?? 0),
         ),
       },
-      expenseByCategory: [...byCategory.entries()].map(([category, amount]) => ({ category, amount })),
+      expenseByCategory: categoryRows,
+      expenseInsight: {
+        total: expenseTotal,
+        topCategory: topCategory ? topCategory.category : null,
+        topCategoryAmount: topCategory ? topCategory.amount : 0,
+        topCategorySharePct:
+          topCategory && expenseTotal > 0 ? (topCategory.amount / expenseTotal) * 100 : null,
+        significantCategories: significantCategories.slice(0, 3),
+        categoryCount: categoryRows.length,
+        // First half of the period against the second, so the direction is
+        // visible without reading a chart.
+        trend,
+        firstHalf,
+        secondHalf,
+        cumulativeSeries: expenseCumulativeSeries,
+        // What the non-cherry spend adds to the cost of each kilogram of green.
+        overheadPerKgGreen:
+          greenKg > 0 ? expenseTotal / greenKg : null,
+      },
       greenByProcess: [...byProcess.entries()].map(([process, greenKg]) => ({ process, greenKg })),
       stationPerformance: byStation,
       topBuyers,
