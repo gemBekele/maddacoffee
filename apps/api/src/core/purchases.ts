@@ -30,6 +30,11 @@ export class PurchasesController {
   @RequirePermissions('purchase.write')
   async create(@Body(new ZodValidationPipe(cherryPurchaseSchema)) body: CherryPurchaseInput, @CurrentUser() actor: AuthUser) {
     const code = await this.numbering.next('purchase', body.date);
+    // Receipt numbers are assigned by the system so every purchase gets one and
+    // none are duplicated. A value supplied by the client is honoured, because
+    // some stations issue a pre-printed receipt book and the paper number is
+    // the one that has to appear on the record.
+    const receiptNo = body.receiptNo?.trim() || (await this.numbering.next('receipt', body.date));
     const totalAmount = Number(body.cherryKg) * Number(body.pricePerKg);
     const purchase = await this.prisma.cherryPurchase.create({
       data: {
@@ -37,7 +42,7 @@ export class PurchasesController {
         date: body.date,
         stationId: body.stationId,
         supplierId: body.supplierId,
-        receiptNo: body.receiptNo ?? null,
+        receiptNo,
         cherryKg: body.cherryKg,
         pricePerKg: body.pricePerKg,
         totalAmount,

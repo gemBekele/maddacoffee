@@ -5,6 +5,7 @@ export const DOC_PREFIX = {
   supplier: 'SUP',
   buyer: 'BUY',
   purchase: 'PUR',
+  receipt: 'RCP',
   batch: 'BATCH',
   lot: 'LOT',
   inventory: 'INV',
