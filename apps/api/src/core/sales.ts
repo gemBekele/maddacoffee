@@ -536,7 +536,10 @@ export class CommercialController {
 
 @Controller('emails')
 export class EmailsController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private email: EmailService,
+  ) {}
 
   @Get()
   @RequirePermissions('dashboard.read')
@@ -546,6 +549,40 @@ export class EmailsController {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  /** Which transport is live, and from which address. No credentials returned. */
+  @Get('status')
+  @RequirePermissions('dashboard.read')
+  status() {
+    return this.email.status();
+  }
+
+  /**
+   * Send a real message through the configured transport.
+   *
+   * Exists so a misconfigured sender or an unverified domain is caught here
+   * rather than on a buyer-facing invoice.
+   */
+  @Post('test')
+  @RequirePermissions('settings.manage')
+  async test(@Body('to') to: string, @CurrentUser() actor: AuthUser) {
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+      return { status: 'Failed', error: 'A valid destination address is required' };
+    }
+    const result = await this.email.send({
+      to,
+      subject: 'MADDA ERP email test',
+      text: 'This is a test message from MADDA ERP. If you received it, outbound email is configured correctly.',
+      html:
+        '<p>This is a test message from <b>MADDA ERP</b>.</p>' +
+        '<p>If you received it, outbound email is configured correctly.</p>',
+      template: 'test',
+      entity: 'System',
+      entityId: actor.id,
+      userId: actor.id,
+    });
+    return { ...result, transport: this.email.status() };
   }
 }
 
