@@ -8,7 +8,6 @@ export const DOC_PREFIX = {
   batch: 'BATCH',
   lot: 'LOT',
   inventory: 'INV',
-  payment: 'PAY',
   expense: 'EXP',
   quotation: 'QTN',
   proforma: 'PRO',

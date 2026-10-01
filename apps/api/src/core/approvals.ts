@@ -15,7 +15,9 @@ export class ApprovalsController {
   }
 
   @Post(':id/decide')
-  @RequirePermissions('payment.approve')
+  // Approvals cover purchases, expenses and discounts, so the gate is the
+  // finance approval right rather than any one of the per-item rights.
+  @RequirePermissions('finance.approve')
   decide(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(approvalDecisionSchema)) body: { status: 'Approved' | 'Rejected'; note?: string },

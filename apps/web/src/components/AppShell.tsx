@@ -59,7 +59,6 @@ const NAV: NavItem[] = [
   { to: '/market', key: 'market', icon: <TrendingUp size={18} />, perm: 'market.read', group: 'tools' },
   { to: '/employees', key: 'employees', icon: <Contact size={18} />, perm: 'employee.read', group: 'finance' },
   { to: '/payroll', key: 'payroll', icon: <Wallet size={18} />, perm: 'payroll.read', group: 'finance' },
-  { to: '/payments', key: 'payments', icon: <Wallet size={18} />, perm: 'payment.read', group: 'finance' },
   { to: '/expenses', key: 'expenses', icon: <Receipt size={18} />, perm: 'expense.read', group: 'finance' },
   { to: '/approvals', key: 'approvals', icon: <ClipboardCheck size={18} />, perm: 'dashboard.read', group: 'finance' },
   { to: '/reports', key: 'reports', icon: <BarChart3 size={18} />, perm: 'report.read', group: 'tools' },

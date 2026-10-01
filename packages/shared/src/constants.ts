@@ -82,7 +82,7 @@ export const DOC_TYPES = [
 ] as const;
 export const DOC_STATUS = ['Pending', 'Ready', 'Submitted'] as const;
 
-export const APPROVAL_ITEMS = ['purchase', 'expense', 'payment', 'discount'] as const;
+export const APPROVAL_ITEMS = ['purchase', 'expense', 'discount'] as const;
 
 export type StationStatus = (typeof STATION_STATUS)[number];
 export type PaymentStatus = (typeof PAYMENT_STATUS)[number];

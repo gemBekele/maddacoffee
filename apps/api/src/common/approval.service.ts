@@ -73,12 +73,6 @@ export class ApprovalService {
         data: { paymentStatus: 'Pending' },
       });
     }
-    if (approval.entity === 'Payment' && status === 'Approved') {
-      await this.prisma.payment.updateMany({
-        where: { id: approval.entityId },
-        data: { status: 'Paid' },
-      });
-    }
     return approval;
   }
 }

@@ -56,9 +56,6 @@ export const PERMISSIONS = [
   'shipment.write',
   'documents.read',
   'documents.write',
-  'payment.read',
-  'payment.write',
-  'payment.approve',
   'expense.read',
   'expense.write',
   'expense.approve',
@@ -105,12 +102,10 @@ const PROCUREMENT: Permission[] = [
   'processing.read',
   'inventory.read',
   'expense.read', 'expense.write',
-  'payment.read',
   'report.read',
 ];
 const FINANCE: Permission[] = [
   'dashboard.read',
-  'payment.read', 'payment.write', 'payment.approve',
   'expense.read', 'expense.write', 'expense.approve',
   'finance.read', 'finance.approve',
   'purchase.read', 'commercial.read', 'proforma.read', 'contract.read',
@@ -126,7 +121,6 @@ const STATION: Permission[] = [
   'quality.read',
   'inventory.read', 'inventory.write',
   'expense.read', 'expense.write',
-  'payment.read',
   'report.read',
 ];
 
@@ -135,7 +129,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ceo: ALL,
   general_manager: ALL,
   finance_manager: FINANCE,
-  accountant: ['dashboard.read', 'payment.read', 'payment.write', 'expense.read', 'expense.write', 'finance.read', 'report.read'],
+  accountant: ['dashboard.read', 'expense.read', 'expense.write', 'finance.read', 'report.read'],
   sales_manager: [...SALES],
   sales_officer: SALES.filter(
     (p) => p !== 'proforma.send' && p !== 'buyer.write' && p !== 'contract.write',

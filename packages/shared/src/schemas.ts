@@ -112,20 +112,6 @@ export const expenseSchema = z.object({
 });
 export type ExpenseInput = z.infer<typeof expenseSchema>;
 
-export const paymentSchema = z.object({
-  date: z.coerce.date(),
-  stationId: z.string().optional().nullable(),
-  payee: z.string().min(2),
-  type: z.enum(['Supplier', 'Expense', 'Salary', 'Refund', 'Other']),
-  referenceId: z.string().optional().nullable(),
-  amount: z.coerce.number().positive(),
-  currency: z.string().default('ETB'),
-  method: z.enum(PAYMENT_METHOD).default('Cash'),
-  status: z.enum(PAYMENT_STATUS).default('Pending'),
-  notes: z.string().optional().nullable(),
-});
-export type PaymentInput = z.infer<typeof paymentSchema>;
-
 const lineSchema = z.object({
   lotId: z.string().optional().nullable(),
   description: z.string().min(1),

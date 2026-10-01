@@ -44,7 +44,6 @@ export function SettingsPage() {
             {[
               ['purchase', 'Cherry purchases'],
               ['expense', 'Expenses'],
-              ['payment', 'Payments'],
               ['discount', 'Discounts / price changes'],
             ].map(([key, label]) => (
               <label key={key} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2.5">

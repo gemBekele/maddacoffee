@@ -24,7 +24,7 @@ import {
   EmailsController,
   ActivityController,
 } from './sales';
-import { PaymentsController, ExpensesController } from './finance';
+import { ExpensesController } from './finance';
 import { ApprovalsController } from './approvals';
 import { ReportsController } from './reports';
 import { NumberingService } from '../common/numbering.service';
@@ -47,7 +47,6 @@ import { ActivityService } from '../common/activity.service';
     ContractsController,
     CommercialController,
     ShipmentsController,
-    PaymentsController,
     ExpensesController,
     ApprovalsController,
     ReportsController,

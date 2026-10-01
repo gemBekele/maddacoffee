@@ -33,7 +33,6 @@ const ProformaDetailPage = named(() => import('@/pages/sales-detail'), 'Proforma
 const CommercialDetailPage = named(() => import('@/pages/sales-detail'), 'CommercialDetailPage');
 const ShipmentDetailPage = named(() => import('@/pages/sales-detail'), 'ShipmentDetailPage');
 
-const PaymentsPage = named(() => import('@/pages/finance'), 'PaymentsPage');
 const ExpensesPage = named(() => import('@/pages/finance'), 'ExpensesPage');
 const ApprovalsPage = named(() => import('@/pages/approvals'), 'ApprovalsPage');
 const ReportsPage = named(() => import('@/pages/reports'), 'ReportsPage');
@@ -83,7 +82,6 @@ export default function App() {
             <Route path="/employees" element={P(<EmployeesPage />)} />
             <Route path="/payroll" element={P(<PayrollPage />)} />
             <Route path="/payroll/:id" element={P(<PayrollDetailPage />)} />
-            <Route path="/payments" element={P(<PaymentsPage />)} />
             <Route path="/expenses" element={P(<ExpensesPage />)} />
             <Route path="/approvals" element={P(<ApprovalsPage />)} />
             <Route path="/reports" element={P(<ReportsPage />)} />

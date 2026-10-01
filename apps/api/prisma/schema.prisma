@@ -476,6 +476,8 @@ model Expense {
   @@map("expenses")
 }
 
+// Retired: the Payments page was removed in favour of Expenses. The model and
+// its table are kept so historical records survive; nothing writes to it.
 model Payment {
   id          String   @id @default(cuid())
   code        String   @unique
