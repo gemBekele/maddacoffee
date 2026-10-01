@@ -26,6 +26,7 @@ import {
   Truck,
   ClipboardCheck,
   UserRound,
+  Globe2,
 } from 'lucide-react';
 import { cn, SyncChip } from './ui';
 import { useAuth } from '@/lib/auth';
@@ -52,6 +53,7 @@ const NAV: NavItem[] = [
   { to: '/commercial', key: 'commercial', icon: <FileCheck2 size={18} />, perm: 'commercial.read', group: 'sales' },
   { to: '/contracts', key: 'contracts', icon: <FileText size={18} />, perm: 'contract.read', group: 'sales' },
   { to: '/shipments', key: 'shipments', icon: <Truck size={18} />, perm: 'shipment.read', group: 'sales' },
+  { to: '/compliance', key: 'compliance', icon: <Globe2 size={18} />, perm: 'compliance.read', group: 'sales' },
   { to: '/payments', key: 'payments', icon: <Wallet size={18} />, perm: 'payment.read', group: 'finance' },
   { to: '/expenses', key: 'expenses', icon: <Receipt size={18} />, perm: 'expense.read', group: 'finance' },
   { to: '/approvals', key: 'approvals', icon: <ClipboardCheck size={18} />, perm: 'dashboard.read', group: 'finance' },

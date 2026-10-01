@@ -15,6 +15,9 @@ import {
   SALE_PAYMENT_STATUS,
   BATCH_STATUS,
   CURRENCIES,
+  COUNTRY_PROFILES,
+  ALL_REQUIREMENTS,
+  DOCUMENT_TEMPLATES,
 } from '@madda/shared';
 
 const prisma = new PrismaClient();
@@ -150,6 +153,121 @@ async function seedStation() {
   });
 }
 
+/**
+ * Country compliance profiles and requirements.
+ *
+ * Upsert keyed on a natural key rather than cuid, because the schema has no
+ * natural unique constraint on (countryCode, name) and re-seeding must be
+ * idempotent rather than accumulating duplicates.
+ */
+async function seedCompliance() {
+  const profiles: string[] = [];
+  for (const p of COUNTRY_PROFILES) {
+    const existing = await prisma.countryComplianceProfile.findFirst({
+      where: { countryCode: p.countryCode, market: p.market },
+    });
+    const data = {
+      countryName: p.countryName,
+      market: p.market,
+      marketBlock: p.marketBlock ?? null,
+      customsProcedureCpc: p.customsProcedureCpc ?? null,
+      active: true,
+      effectiveFrom: new Date('2026-01-01'),
+      lastVerifiedAt: p.lastVerifiedAt ? new Date(p.lastVerifiedAt) : null,
+      verificationSource: p.verificationSource ?? null,
+      notes: p.notes ?? null,
+    };
+    if (existing) {
+      await prisma.countryComplianceProfile.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.countryComplianceProfile.create({
+        data: { countryCode: p.countryCode, ...data },
+      });
+    }
+    profiles.push(p.countryCode);
+  }
+
+  // Map countryCode -> profileId so destination rules can be attached.
+  const profileByCountry = new Map<string, string>();
+  for (const prof of await prisma.countryComplianceProfile.findMany()) {
+    profileByCountry.set(prof.countryCode, prof.id);
+  }
+
+  const requirements: string[] = [];
+  for (const r of ALL_REQUIREMENTS) {
+    const profileId = r.countryCode === '*' ? null : (profileByCountry.get(r.countryCode) ?? null);
+    const existing = await prisma.complianceRequirement.findFirst({
+      where: { countryCode: r.countryCode, name: r.name },
+    });
+    const data = {
+      profileId,
+      marketBlock: r.marketBlock ?? null,
+      description: r.description,
+      authority: r.authority,
+      requirementType: r.requirementType,
+      scope: r.scope,
+      issuerType: r.issuerType,
+      documentType: r.documentType,
+      mandatory: r.mandatory,
+      conditional: r.conditional,
+      triggerConditions: (r.triggerConditions ?? null) as any,
+      requiredData: null,
+      submissionMethod: r.submissionMethod,
+      officialUrl: r.officialUrl ?? null,
+      legalBasis: r.legalBasis ?? null,
+      leadTimeDays: r.leadTimeDays ?? null,
+      validityDays: r.validityDays ?? null,
+      appliesToImporter: r.appliesToImporter ?? false,
+      notes: r.notes ?? null,
+      effectiveFrom: new Date('2026-01-01'),
+      lastVerifiedAt: (r as any).lastVerifiedAt ? new Date((r as any).lastVerifiedAt) : null,
+      verificationStatus: r.verificationStatus,
+      verificationSource: r.verificationSource ?? r.officialUrl ?? null,
+    };
+    // `data` mixes the profile relation scalar with unchecked columns, which
+    // Prisma's generated types cannot express in one object.
+    if (existing) {
+      await prisma.complianceRequirement.update({ where: { id: existing.id }, data: data as any });
+    } else {
+      await prisma.complianceRequirement.create({
+        data: { countryCode: r.countryCode, name: r.name, ...data } as any,
+      });
+    }
+    requirements.push(r.name);
+  }
+
+  // Attach templates to the requirement they describe, where we can match.
+  const byDocType = await prisma.complianceRequirement.findMany();
+  const templates: string[] = [];
+  for (const t of DOCUMENT_TEMPLATES) {
+    const match = byDocType.find((x) => x.documentType === t.documentType);
+    const existing = await prisma.documentTemplate.findFirst({
+      where: { documentType: t.documentType, countryCode: t.countryCode },
+    });
+    const data = {
+      requirementId: match?.id ?? null,
+      authority: t.authority,
+      templateKind: t.templateKind,
+      officialSourceUrl: t.officialSourceUrl ?? null,
+      format: t.format,
+      versionDate: new Date('2026-09-30'),
+      lastVerifiedAt: t.officialSourceUrl ? new Date('2026-09-30') : null,
+      notes: t.notes ?? null,
+      effectiveFrom: new Date('2026-01-01'),
+    };
+    if (existing) {
+      await prisma.documentTemplate.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.documentTemplate.create({
+        data: { documentType: t.documentType, countryCode: t.countryCode, ...data },
+      });
+    }
+    templates.push(`${t.documentType} (${t.templateKind})`);
+  }
+
+  return { profiles, requirements, templates };
+}
+
 async function main() {
   console.log('Seeding MADDA ERP...');
   await seedRoles();
@@ -157,6 +275,7 @@ async function main() {
   await seedCurrencies();
   const admin = await seedAdmin();
   await seedStation();
+  const compliance = await seedCompliance();
 
   await prisma.setting.upsert({
     where: { key: 'approvals' },
@@ -176,6 +295,9 @@ async function main() {
   console.log(`  ✓ lookups: ${lookups}`);
   console.log(`  ✓ currencies: ${CURRENCIES.length}`);
   console.log(`  ✓ station ST-001`);
+  console.log(`  ✓ country profiles: ${compliance.profiles.length} (${compliance.profiles.join(', ')})`);
+  console.log(`  ✓ compliance requirements: ${compliance.requirements.length}`);
+  console.log(`  ✓ document templates: ${compliance.templates.length}`);
   console.log(`  ✓ admin: ${admin.email} / ${admin.password}`);
   console.log('Done.');
 }

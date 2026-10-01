@@ -4,6 +4,7 @@ import { AuditService } from '../common/audit.service';
 import { NumberingService } from '../common/numbering.service';
 import { EmailService } from '../common/email.service';
 import { ActivityService } from '../common/activity.service';
+import { ComplianceService } from './compliance.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import {
@@ -18,7 +19,7 @@ import {
   type ContractInput,
   type ShipmentInput,
   formatMoney,
-  DOC_TYPES,
+  addDays,
 } from '@madda/shared';
 
 const linesTotal = (lines: any[]) =>
@@ -420,6 +421,7 @@ export class ShipmentsController {
     private audit: AuditService,
     private numbering: NumberingService,
     private activity: ActivityService,
+    private compliance: ComplianceService,
   ) {}
 
   @Get()
@@ -430,11 +432,86 @@ export class ShipmentsController {
 
   @Get(':id')
   @RequirePermissions('shipment.read')
-  one(@Param('id') id: string) {
-    return this.prisma.shipment.findUnique({
+  async one(@Param('id') id: string) {
+    const shipment = await this.prisma.shipment.findUnique({
       where: { id },
-      include: { contract: { include: { buyer: true } }, documents: true, events: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        contract: { include: { buyer: true, commercial: { include: { lines: true } }, proforma: { include: { lines: true } } } },
+        documents: { include: { companyDoc: true, requirement: true }, orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }] },
+        events: { orderBy: { createdAt: 'desc' } },
+        eudr: { include: { _count: { select: { plotLinks: true } } } },
+      },
     });
+    if (!shipment) return { error: 'Not found' };
+
+    // Company-level documents the engine says this shipment relies on, without
+    // duplicating them per shipment.
+    const companyRequired = await this.prisma.complianceRequirement.findMany({
+      where: { scope: { in: ['COMPANY', 'SHARED'] }, mandatory: true, effectiveUntil: null },
+      orderBy: { name: 'asc' },
+    });
+
+    // Match held documents by docType rather than the requirement FK. A company
+    // document recorded from the Compliance tab has no requirementId, and
+    // matching on the FK would report a document we demonstrably hold as missing.
+    const held = await this.prisma.companyDocument.findMany({
+      where: { status: { not: 'Revoked' } },
+      orderBy: { issuedAt: 'desc' },
+    });
+    const heldByType = new Map<string, (typeof held)[number]>();
+    for (const d of held) {
+      if (!heldByType.has(d.docType)) heldByType.set(d.docType, d);
+    }
+
+    // Expiry warnings only matter for documents this shipment actually relies on,
+    // so compute them from the same required list rather than the whole company set.
+    const expiringSoon = [...heldByType.entries()]
+      .filter(([docType]) => companyRequired.some((r: any) => r.documentType === docType))
+      .map(([, doc]) => doc)
+      .filter((d) => d.expiresAt && new Date(d.expiresAt) <= addDays(new Date(), 60));
+
+    const checklist = shipment.documents.filter((d: any) => d.status !== 'NotApplicable');
+    const ready = checklist.filter((d: any) => d.status === 'Ready' || d.status === 'Submitted');
+
+    return {
+      ...shipment,
+      companyDocuments: companyRequired.map((r: any) => ({
+        requirementId: r.id,
+        documentType: r.documentType,
+        name: r.name,
+        authority: r.authority,
+        legalBasis: r.legalBasis,
+        verificationStatus: r.verificationStatus,
+        verificationSource: r.verificationSource,
+        held: heldByType.get(r.documentType) ?? null,
+      })),
+      summary: {
+        required: checklist.filter((d: any) => d.mandatory).length,
+        ready: ready.length,
+        total: checklist.length,
+        // Split by verification so the UI can separate confirmed from assumed.
+        verified: checklist.filter((d: any) => d.verificationStatus === 'VERIFIED').length,
+        unverified: checklist.filter((d: any) => d.verificationStatus && d.verificationStatus !== 'VERIFIED').length,
+        expiringSoon: checklist.filter((d: any) => d.validUntil && new Date(d.validUntil) <= addDays(new Date(), 30)).length,
+      },
+      companyGaps: companyRequired
+        .filter((r: any) => !heldByType.has(r.documentType))
+        .map((r: any) => ({
+          requirementId: r.id,
+          documentType: r.documentType,
+          name: r.name,
+          authority: r.authority,
+          legalBasis: r.legalBasis,
+          verificationStatus: r.verificationStatus,
+        })),
+      companyExpiring: expiringSoon.map((d) => ({
+        id: d.id,
+        docType: d.docType,
+        title: d.title,
+        number: d.number,
+        expiresAt: d.expiresAt,
+      })),
+    };
   }
 
   @Post()
@@ -459,18 +536,97 @@ export class ShipmentsController {
         address: body.address ?? contract?.buyer?.country ?? null,
         contact: body.contact ?? contract?.buyer?.phone ?? contract?.buyer?.email ?? null,
         itemDescription: body.itemDescription ?? 'Ethiopian green coffee (export)',
+        // Destination drives the compliance checklist. Pre-filled from the
+        // buyer but overridable, because customs cares where goods are released
+        // rather than where the buyer is registered.
+        destinationCountryCode: body.destinationCountryCode ?? null,
+        productForm: body.productForm ?? 'Green',
         note: body.note ?? null,
         notes: body.notes ?? null,
         status: 'Preparing',
         trackingStatus: 'Received',
-        documents: { create: DOC_TYPES.map((d) => ({ docType: d, status: 'Pending' })) },
+        // The checklist is NOT seeded here. It is derived from the destination
+        // country by the compliance engine, so it must be resolved after insert.
         events: { create: { status: 'Received', location: body.port ?? 'Station', note: 'Consignment received and registered.' } },
       },
       include: { documents: true, events: true },
     });
     await this.audit.log({ userId: actor.id, action: 'CREATE', entity: 'Shipment', entityId: s.id });
     await this.activity.log('Shipment', s.id, 'created', `Shipment ${s.code} created (${trackingNo})`, actor.id);
-    return s;
+
+    // Resolve the destination-driven document checklist. A failure here must not
+    // lose the shipment, so the error is logged rather than thrown.
+    let checklist: unknown = null;
+    try {
+      checklist = await this.compliance.applyToShipment(s.id, { regenerate: true });
+    } catch (e) {
+      this.activity.log(
+        'Shipment',
+        s.id,
+        'note',
+        `Checklist resolution failed: ${(e as Error).message}. Run POST /shipments/${s.id}/compliance/apply to retry.`,
+        actor.id,
+      );
+    }
+
+    return { ...s, checklist };
+  }
+
+  /**
+   * Recompute the checklist for the current destination. Safe to call repeatedly.
+   */
+  @Post(':id/compliance/apply')
+  @RequirePermissions('shipment.write')
+  async applyCompliance(@Param('id') id: string, @Body('regenerate') regenerate: boolean, @CurrentUser() actor: AuthUser) {
+    const result = await this.compliance.applyToShipment(id, { regenerate: !!regenerate });
+    await this.activity.log(
+      'Shipment',
+      id,
+      'note',
+      `Checklist resolved for ${result.destination ?? 'unspecified destination'}: ${result.created.length} added, ${result.updated.length} refreshed, ${result.retracted.length} no longer required`,
+      actor.id,
+    );
+    return result;
+  }
+
+  /** Change destination and re-resolve in one call. */
+  @Patch(':id/compliance/destination')
+  @RequirePermissions('shipment.write')
+  async setDestination(
+    @Param('id') id: string,
+    @Body() body: { destinationCountryCode?: string | null; productForm?: string | null },
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const shipment = await this.prisma.shipment.update({
+      where: { id },
+      data: {
+        destinationCountryCode: body.destinationCountryCode ?? null,
+        productForm: body.productForm ?? 'Green',
+      },
+    });
+    const result = await this.compliance.applyToShipment(id);
+    await this.audit.log({
+      userId: actor.id,
+      action: 'SET_DESTINATION',
+      entity: 'Shipment',
+      entityId: id,
+      after: body,
+    });
+    await this.activity.log(
+      'Shipment',
+      id,
+      'status',
+      `Destination set to ${result.destination ?? 'unspecified'} — ${result.created.length} documents required, ${result.retracted.length} no longer applicable`,
+      actor.id,
+    );
+    return { shipment, ...result };
+  }
+
+  /** Link a company-level document to the checklist rows that depend on it. */
+  @Post(':id/compliance/link-company-doc')
+  @RequirePermissions('shipment.write')
+  async linkCompanyDoc(@Param('id') id: string, @Body('companyDocId') companyDocId: string) {
+    return this.compliance.linkCompanyDocument(id, companyDocId);
   }
 
   @Patch(':id/status')

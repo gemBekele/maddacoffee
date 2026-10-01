@@ -177,20 +177,25 @@ model Station {
 }
 
 model Supplier {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  type      String   @default("Farmer")
-  phone     String?
-  location  String?
-  bankInfo  String?
-  status    String   @default("Active")
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  type        String   @default("Farmer")
+  // Optional link to the traceability registry. A supplier may be a loose
+  // market trader with no farm plots behind it, so this is deliberately nullable.
+  producerId  String?
+  phone       String?
+  location    String?
+  bankInfo    String?
+  status      String   @default("Active")
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  producer  Producer?       @relation(fields: [producerId], references: [id])
   purchases CherryPurchase[]
 
+  @@index([producerId])
   @@map("suppliers")
 }
 
@@ -275,11 +280,31 @@ model Lot {
   lotId        String   @id // human-readable e.g. LOT-ST001-NAT-001
   stationId    String
   origin       String?
+  region       String? // Yirgacheffe / Sidama / Guji / Harrar ...
+  zone         String?
+  woreda       String?
+  kebele       String?
+  coffeeType   String   @default("Arabica") // Arabica | Robusta | Blend
+  form         String   @default("Green") // Green | Roasted | Soluble | Liquid
   harvestYear  String?
+  harvestPeriod String? // e.g. 2025/26 main crop
   process      String
   grade        String?
   screenSize   String?
+  moisturePct  Decimal? @db.Decimal(5, 2)
+  defectCount  Int?
+  defectPct    Decimal? @db.Decimal(5, 2)
   cuppingScore Decimal? @db.Decimal(5, 2)
+  organic      Boolean  @default(false)
+  bagCount     Int?
+  bagNumbers   String? // comma-separated; ICO UCR / ICO identification marks
+  netWeightKg  Decimal? @db.Decimal(14, 3)
+  grossWeightKg Decimal? @db.Decimal(14, 3)
+  warehouse    String?
+  ecxWarehouseReceipt String?
+  ecxGrade     String?
+  ecxCertDate  DateTime?
+  qualityCertRef String? // CLU quality certificate reference
   status       String   @default("Active") // Active | Exported | Closed
   notes        String?
   createdAt    DateTime @default(now())
@@ -288,8 +313,103 @@ model Lot {
   station  Station           @relation(fields: [stationId], references: [id])
   batches  ProcessingBatch[]
   inventory InventoryItem[]
+  traces    LotTrace[]
+  documents LotDocument[]
 
   @@map("lots")
+}
+
+// ───────────────────────────── Traceability (EUDR) ─────────────────────────────
+// Producer is deliberately either a FARMER or a WASHING_STATION/COOPERATIVE.
+// `kind` decides whether Plot polygons attach per-farm or per-station, which is
+// the single biggest driver of field-data collection effort.
+
+model Producer {
+  id       String   @id @default(cuid())
+  code     String   @unique
+  name     String
+  kind     String   @default("FARMER") // FARMER | WASHING_STATION | COOPERATIVE
+  phone    String?
+  region   String?
+  zone     String?
+  woreda   String?
+  kebele   String?
+  latitude Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  notes    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plots      Plot[]
+  suppliers  Supplier[]
+
+  @@map("producers")
+}
+
+model Plot {
+  id             String   @id @default(cuid())
+  producerId     String
+  name           String?
+  region         String?
+  zone           String?
+  woreda         String?
+  kebele         String?
+  // GeoJSON Polygon per EUDR Reg. 2023/1115 Art. 9(1)(d). Polygons required for
+  // plots > 4 ha; a single 6-decimal point is acceptable below that threshold.
+  polygon        Json?
+  geolocationMethod String? // GPS | GIS | MAPPED
+  areaHa         Decimal? @db.Decimal(10, 4)
+  landTenure     String? // FREEHOLD | LEASE | HGU | COOPERATIVE | OTHER
+  legalityDocRef String?
+  harvestedFrom  DateTime? // production date/time range (EUDR Art. 9(1)(e))
+  harvestedTo    DateTime?
+  registeredAt   DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  producer Producer   @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  traces   LotTrace[]
+  eudrLinks EudrPlotLink[]
+
+  @@index([producerId])
+  @@map("plots")
+}
+
+// The single join that answers all three traceability questions:
+//   which plots contributed to this lot  -> by lotId
+//   which shipments contain this lot     -> lotId <- CommercialInvoiceLine
+//   which plots reach this shipment      -> lotId -> shipment -> eudrLinks
+model LotTrace {
+  lotId           String
+  plotId          String
+  cherryPurchaseId String?
+  contributedKg   Decimal @db.Decimal(14, 3)
+  recordedAt      DateTime @default(now())
+
+  lot  Lot   @relation(fields: [lotId], references: [lotId], onDelete: Cascade)
+  plot Plot   @relation(fields: [plotId], references: [id], onDelete: Cascade)
+
+  @@id([lotId, plotId])
+  @@index([plotId])
+  @@map("lot_traces")
+}
+
+// Certificates and quality results that belong to a specific lot.
+model LotDocument {
+  id         String   @id @default(cuid())
+  lotId      String
+  docType    String // CLU Quality Certificate | Organic Certificate | Cupping Report | ECX Cert
+  reference  String?
+  issuedBy   String?
+  issuedAt   DateTime?
+  expiresAt  DateTime?
+  attachmentId String?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  lot Lot @relation(fields: [lotId], references: [lotId], onDelete: Cascade)
+
+  @@index([lotId])
+  @@map("lot_documents")
 }
 
 model InventoryItem {
@@ -473,6 +593,7 @@ model SalesContract {
   buyer    Buyer            @relation(fields: [buyerId], references: [id])
   proforma ProformaInvoice? @relation(fields: [proformaId], references: [id])
   shipment Shipment?
+  commercial CommercialInvoice?
 
   @@map("sales_contracts")
 }
@@ -483,7 +604,7 @@ model CommercialInvoice {
   date          DateTime
   buyerId       String
   proformaId    String?  @unique
-  contractId    String?
+  contractId    String?  @unique
   currency      String   @default("USD")
   fobPricePerKg Decimal? @db.Decimal(14, 4)
   incoterm      String   @default("FOB")
@@ -495,6 +616,7 @@ model CommercialInvoice {
 
   buyer    Buyer              @relation(fields: [buyerId], references: [id])
   proforma ProformaInvoice?   @relation(fields: [proformaId], references: [id])
+  contract SalesContract?      @relation(fields: [contractId], references: [id])
   lines    CommercialInvoiceLine[]
 
   @@map("commercial_invoices")
@@ -522,6 +644,14 @@ model Shipment {
   date        DateTime?
   mode        String   @default("Sea") // Sea | Air
   port        String?  @default("Djibouti")
+  // Destination country drives which compliance rules apply. Pre-filled from
+  // the buyer but overridable, because customs cares where goods are released
+  // rather than where the buyer is registered.
+  destinationCountryCode String? // ISO-3166 alpha-2
+  destinationCountryName String?
+  destinationMarket      String? // EU | US_JP_CA | AfCFTA | GSP | OTHER
+  productForm            String   @default("Green") // Green | Roasted | Soluble | Liquid
+  sealNo     String?
   billOfLading String?
   containerNo String?
   receiver    String?
@@ -538,7 +668,9 @@ model Shipment {
   contract SalesContract? @relation(fields: [contractId], references: [id])
   documents ShipmentDocument[]
   events    ShipmentEvent[]
+  eudr      EudrStatement?
 
+  @@index([destinationCountryCode])
   @@map("shipments")
 }
 
@@ -559,14 +691,222 @@ model ShipmentEvent {
 model ShipmentDocument {
   id          String  @id @default(cuid())
   shipmentId  String
-  docType     String // CLU quality, phytosanitary, ICO origin, chamber origin, packing list, B/L, bank permit, EUDR
-  status      String  @default("Pending") // Pending | Ready | Submitted
+  docType     String
+  status      String  @default("Pending") // NotApplicable | Pending | InProgress | Ready | Submitted | Rejected
   reference   String?
+
+  // ── Provenance of this row ─────────────────────────────────────────────
+  // requirementId ties the row back to the rule that produced it. Lost when the
+  // country changes; that is intentional, the snapshot fields below survive.
+  requirementId String?
+  countryCode   String? // "*" | ISO-3166 alpha-2 that produced the requirement
+  mandatory     Boolean @default(true)
+  conditional   Boolean @default(false)
+  // Distinguishes what WE produce from what an AUTHORITY issues. An ERP-generated
+  // application pack must never be presented as a government certificate.
+  issuerType    String? // ERP_GENERATED | AUTHORITY_ISSUED | PRIVATE_PARTY
+  artifactKind  String? // ERP_DOCUMENT | APPLICATION_DATA | AUTHORITY_RECEIPT | THIRD_PARTY_DOCUMENT
+  authority     String?
+  officialUrl   String?
+  legalBasis    String?
+  submissionMethod String? // PAPER | PDF | ONLINE | ELECTRONIC_DECLARATION | API | CERTIFICATE
+  verificationStatus String? // VERIFIED | UNVERIFIED | NEEDS_LOCAL_CHECK
+  verificationSource String?
+  requiredData  Json?
+  triggerConditions Json?
+  leadTimeDays  Int?
+  validUntil    DateTime?
+  issuedAt      DateTime?
+  issuedBy      String?
+  notes         String?
+
+  // Company-level documents are referenced, never copied. The snapshot keeps the
+  // number/expiry as-at-use so a later licence lapse does not rewrite history.
+  companyDocId  String?
+  companyDocSnapshot Json? // { docType, number, expiresAt }
+
   attachmentId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  shipment   Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  requirement ComplianceRequirement? @relation(fields: [requirementId], references: [id])
+  companyDoc CompanyDocument? @relation(fields: [companyDocId], references: [id])
+
+  @@unique([shipmentId, docType])
+  @@index([shipmentId, status])
+  @@index([requirementId])
+  @@map("shipment_documents")
+}
+
+// ───────────────────────────── Company-level documents ─────────────────────────────
+// Held once and referenced by every shipment. Never duplicated per shipment.
+
+model CompanyDocument {
+  id           String   @id @default(cuid())
+  docType      String // ECTA_CERTIFICATE_OF_COMPETENCY | BUSINESS_REGISTRATION | TRADE_LICENCE | TIN | VAT | BANK_REGISTRATION
+  title        String
+  issuer       String
+  number       String
+  issuedAt     DateTime
+  expiresAt    DateTime?
+  countryCode  String? // issuing jurisdiction
+  requirementId String?
+  attachmentId String?
+  status       String   @default("Valid") // Valid | Expiring | Expired | Revoked
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  requirement ComplianceRequirement? @relation(fields: [requirementId], references: [id])
+  shipments   ShipmentDocument[]
+
+  @@index([docType])
+  @@index([expiresAt])
+  @@map("company_documents")
+}
+
+// ───────────────────────────── Country compliance engine ─────────────────────────────
+// Resolution: Shipment.destinationCountryCode -> Profile -> requirements whose
+// countryCode is destination, marketBlock, or "*"; then product-form, effective
+// date, and triggerConditions filters. Verified rows carry an official source.
+
+model CountryComplianceProfile {
+  id                 String   @id @default(cuid())
+  countryCode        String   // ISO-3166 alpha-2
+  countryName        String
+  market             String   // EU | US_JP_CA | AfCFTA | GSP | OTHER
+  marketBlock        String?  // e.g. "EU"; null when not block-scoped
+  customsProcedureCpc String? // e.g. E100 direct public export
+  active             Boolean  @default(true)
+  effectiveFrom      DateTime @default(now())
+  effectiveUntil     DateTime?
+  lastVerifiedAt     DateTime?
+  verificationSource String?
+  notes              String?
+
+  requirements ComplianceRequirement[]
+
+  @@unique([countryCode, effectiveFrom])
+  @@index([countryCode])
+  @@map("country_compliance_profiles")
+}
+
+model ComplianceRequirement {
+  id             String   @id @default(cuid())
+  profileId      String?
+  countryCode    String   @default("*") // ISO-3166 alpha-2, or "*" for all destinations
+  marketBlock    String?
+  name           String
+  description    String
+  authority      String
+  requirementType String  // DOCUMENT | CERTIFICATE | DECLARATION | REGISTRATION | LICENSE | INSPECTION | TEST | TRACEABILITY | ELECTRONIC_SUBMISSION | API_SUBMISSION | CUSTOMS | FOOD_SAFETY | PLANT_HEALTH | ORIGIN
+  scope          String   // COMPANY | SHARED | SHIPMENT | LOT | GOODS | DEST
+  issuerType     String   // ERP_GENERATED | AUTHORITY_ISSUED | PRIVATE_PARTY
+  documentType   String
+  mandatory      Boolean  @default(true)
+  conditional    Boolean  @default(false)
+  triggerConditions Json?
+  requiredData   Json?
+  submissionMethod String @default("PAPER")
+  officialUrl    String?
+  legalBasis     String?
+  leadTimeDays   Int?
+  validityDays   Int?
+  appliesToImporter Boolean @default(false)
+  notes          String?
+  effectiveFrom  DateTime @default(now())
+  effectiveUntil DateTime?
+  lastVerifiedAt DateTime?
+  verificationStatus String @default("UNVERIFIED") // VERIFIED | UNVERIFIED | NEEDS_LOCAL_CHECK
+  verificationSource String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  profile          CountryComplianceProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  shipmentDocuments ShipmentDocument[]
+  companyDocuments  CompanyDocument[]
+  templates        DocumentTemplate[]
+
+  @@index([countryCode])
+  @@index([marketBlock])
+  @@index([scope])
+  @@map("compliance_requirements")
+}
+
+// Three distinct things, deliberately kept apart:
+//   A_OFFICIAL_TEMPLATE — the authority publishes a blank form
+//   B_ERP_GENERATED    — we render this from shipment data
+//   C_AUTHORITY_ISSUED — we supply application data; the authority issues it
+model DocumentTemplate {
+  id                String   @id @default(cuid())
+  requirementId     String?
+  documentType      String
+  countryCode       String   @default("*")
+  authority         String?
+  templateKind      String   // A_OFFICIAL_TEMPLATE | B_ERP_GENERATED | C_AUTHORITY_ISSUED
+  templateVersion   String?
+  officialSourceUrl String?
+  templateFile      String? // storage key
+  format            String   @default("PDF") // PDF | HTML | DOCX | XLSX | JSON
+  language          String   @default("en")
+  versionDate       DateTime?
+  effectiveFrom     DateTime @default(now())
+  effectiveUntil    DateTime?
+  lastVerifiedAt    DateTime?
+  notes             String?
+
+  requirement ComplianceRequirement? @relation(fields: [requirementId], references: [id])
+
+  @@index([documentType])
+  @@map("document_templates")
+}
+
+// ───────────────────────────── EUDR (Reg. 2023/1115) ─────────────────────────────
+// The exporter has no filing obligation. The EU importer/operator submits the
+// DDS to TRACES before the goods clear customs; our job is to supply plot
+// geolocation and legality evidence, and to record the reference they send back.
+
+model EudrStatement {
+  id            String   @id @default(cuid())
+  shipmentId    String   @unique
+  ddsReference  String?  // reference issued by the EUDR Information System
+  verificationNumber String?
+  submitterParty String  @default("EU_IMPORTER") // we never file; recorded for the record
+  submittedAt   DateTime?
+  submittedByName String?
+  status        String   @default("NotStarted") // NotStarted | GeodataPending | GeodataReady | Submitted | Accepted | Rejected
+  commodity     String   @default("Coffee")
+  hsCode        String?
+  quantityKg    Decimal? @db.Decimal(14, 3)
+  countryOfProduction String @default("Ethiopia")
+  productionPeriodFrom DateTime?
+  productionPeriodTo   DateTime?
+  riskAssessment Json?
+  riskMitigation Json?
+  referenceYear String? // 31 December 2020 cut-off reference
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  plotLinks EudrPlotLink[]
 
-  @@map("shipment_documents")
+  @@map("eudr_statements")
+}
+
+model EudrPlotLink {
+  id           String @id @default(cuid())
+  eudrStatementId String
+  plotId       String
+  geolocationSuppliedAt DateTime?
+
+  eudr EudrStatement @relation(fields: [eudrStatementId], references: [id], onDelete: Cascade)
+  plot Plot          @relation(fields: [plotId], references: [id], onDelete: Cascade)
+
+  @@unique([eudrStatementId, plotId])
+  @@index([plotId])
+  @@map("eudr_plot_links")
 }
 
 // ───────────────────────────── Workflow support ─────────────────────────────

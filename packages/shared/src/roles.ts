@@ -38,6 +38,7 @@ export const PERMISSIONS = [
   'processing.write',
   'quality.read',
   'quality.write',
+  'traceability.read',
   'inventory.read',
   'inventory.write',
   'buyer.read',
@@ -65,6 +66,10 @@ export const PERMISSIONS = [
   'finance.approve',
   'report.read',
   'audit.read',
+  'compliance.read',
+  'compliance.write',
+  'traceability.read',
+  'traceability.write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -82,6 +87,8 @@ const SALES: Permission[] = [
   'documents.read', 'documents.write',
   'inventory.read',
   'report.read',
+  'compliance.read',
+  'traceability.read',
 ];
 const PROCUREMENT: Permission[] = [
   'dashboard.read',
@@ -125,14 +132,33 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   sales_officer: SALES.filter(
     (p) => p !== 'proforma.send' && p !== 'buyer.write' && p !== 'contract.write',
   ),
-  docs_officer: ['dashboard.read', 'documents.read', 'documents.write', 'shipment.read', 'commercial.read', 'proforma.read', 'contract.read', 'report.read'],
+  docs_officer: [
+    'dashboard.read',
+    'documents.read', 'documents.write',
+    'shipment.read',
+    'commercial.read', 'proforma.read', 'contract.read',
+    'quality.read',
+    'compliance.read', 'traceability.read',
+    'report.read',
+  ],
   procurement_manager: PROCUREMENT,
   station_manager: STATION,
   cherry_receiver: ['dashboard.read', 'station.read', 'supplier.read', 'purchase.read', 'purchase.write'],
   processing_supervisor: ['dashboard.read', 'processing.read', 'processing.write', 'inventory.read', 'quality.read'],
-  qc_officer: ['dashboard.read', 'quality.read', 'quality.write', 'processing.read', 'inventory.read'],
+  qc_officer: [
+    'dashboard.read',
+    'quality.read', 'quality.write',
+    'processing.read', 'inventory.read',
+    'traceability.read', 'traceability.write', 'compliance.read',
+  ],
   warehouse_officer: ['dashboard.read', 'inventory.read', 'inventory.write', 'report.read'],
-  logistics_officer: ['dashboard.read', 'shipment.read', 'shipment.write', 'documents.read', 'inventory.read'],
+  logistics_officer: [
+    'dashboard.read',
+    'shipment.read', 'shipment.write',
+    'documents.read', 'documents.write',
+    'inventory.read',
+    'compliance.read', 'traceability.read',
+  ],
   hr_admin: ['dashboard.read', 'users.manage', 'settings.manage'],
   auditor: ALL.filter((p) => p === 'audit.read' || p.endsWith('.read')),
 };

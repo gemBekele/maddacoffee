@@ -24,6 +24,7 @@ const ProformasPage = named(() => import('@/pages/sales'), 'ProformasPage');
 const ContractsPage = named(() => import('@/pages/sales'), 'ContractsPage');
 const CommercialPage = named(() => import('@/pages/sales'), 'CommercialPage');
 const ShipmentsPage = named(() => import('@/pages/sales'), 'ShipmentsPage');
+const CompliancePage = named(() => import('@/pages/Compliance'), 'CompliancePage');
 const ProformaDetailPage = named(() => import('@/pages/sales-detail'), 'ProformaDetailPage');
 const CommercialDetailPage = named(() => import('@/pages/sales-detail'), 'CommercialDetailPage');
 const ShipmentDetailPage = named(() => import('@/pages/sales-detail'), 'ShipmentDetailPage');
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="/contracts" element={P(<ContractsPage />)} />
             <Route path="/shipments" element={P(<ShipmentsPage />)} />
             <Route path="/shipments/:id" element={P(<ShipmentDetailPage />)} />
+            <Route path="/compliance" element={P(<CompliancePage />)} />
             <Route path="/payments" element={P(<PaymentsPage />)} />
             <Route path="/expenses" element={P(<ExpensesPage />)} />
             <Route path="/approvals" element={P(<ApprovalsPage />)} />

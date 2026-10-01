@@ -13,9 +13,25 @@ import {
   Phone,
   Truck,
   Package,
+  RefreshCw,
+  ExternalLink,
+  Building2,
+  AlertTriangle,
+  MapPin,
+  Download,
 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { Button, Card, StatusPill, Field, Input, Select, Modal } from '@/components/ui';
+import {
+  Button,
+  Card,
+  StatusPill,
+  Field,
+  Input,
+  Select,
+  Modal,
+  VerificationBadge,
+  IssuerBadge,
+} from '@/components/ui';
 import { DataTable } from '@/components/DataTable';
 import { InfoRow, CustomerCard, SentEmails, ActivityFeed, CustomerHistory } from '@/components/detail';
 import { api } from '@/lib/api';
@@ -23,6 +39,147 @@ import { formatMoney, formatKg } from '@madda/shared';
 
 function useDetail(key: string, url: string) {
   return useQuery({ queryKey: [key, url], queryFn: async () => (await api.get(url)).data });
+}
+
+/**
+ * EUDR panel.
+ *
+ * Deliberately separate from the document checklist. The exporter never files a
+ * Due Diligence Statement; the EU importer does. What we own is supplying plot
+ * geolocation and recording the reference they hand back, so the panel is
+ * framed around that rather than offering a "file DDS" action we cannot honour.
+ */
+function EudrPanel({ shipment }: { shipment: any }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['traceability', 'eudr', shipment.id],
+    queryFn: async () => (await api.get(`/traceability/eudr/${shipment.id}`)).data,
+  });
+  const [ddsRef, setDdsRef] = useState('');
+
+  const link = useMutation({
+    mutationFn: () => api.post(`/traceability/eudr/${shipment.id}/link-plots`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['traceability', 'eudr', shipment.id] }),
+  });
+
+  const save = useMutation({
+    mutationFn: (body: any) => api.patch(`/traceability/eudr/${shipment.id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['traceability', 'eudr', shipment.id] }),
+  });
+
+  const downloadGeoJson = async () => {
+    const res = await api.get(`/traceability/eudr/${shipment.id}/geojson`);
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${shipment.code}-eudr-geolocation.geojson`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (isLoading || !data) return null;
+
+  const missing: string[] = data.missingGeolocation ?? [];
+  const incomplete = missing.length > 0 || (data.plotCount ?? 0) === 0;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <MapPin size={15} className="text-slate-400" /> EUDR due diligence
+          </div>
+          <div className="mt-0.5 text-xs text-slate-400">
+            Regulation (EU) 2023/1115 · applies {data.applicationDate}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => link.mutate()} className="h-8 text-xs" disabled={link.isPending}>
+            <RefreshCw size={13} className={link.isPending ? 'animate-spin' : ''} /> Sync plots
+          </Button>
+          <Button variant="ghost" onClick={downloadGeoJson} className="h-8 text-xs">
+            <Download size={13} /> GeoJSON
+          </Button>
+        </div>
+      </div>
+
+      <div className="mb-3 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+        {data.responsibility}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-slate-50 p-2.5">
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">Plots</div>
+          <div className="text-lg font-semibold text-slate-900">{data.plotCount ?? 0}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-2.5">
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">Geolocated</div>
+          <div className={`text-lg font-semibold ${incomplete ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {data.geolocatedCount ?? 0}
+          </div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-2.5">
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">DDS reference</div>
+          <div className="truncate text-sm font-semibold text-slate-900">{data.statement?.ddsReference ?? '—'}</div>
+        </div>
+      </div>
+
+      {incomplete && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-600/15">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>
+            {(data.plotCount ?? 0) === 0 ? (
+              <>
+                <span className="font-semibold">No plot data on this shipment.</span>
+                <p className="mt-0.5">
+                  This shipment cannot be supported for EUDR without plot-level geolocation. Link the contributing farms
+                  on the lot, or use “derive traces” to pull them from the supplier chain.
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">{missing.length} plot(s) missing geolocation.</span>
+                <p className="mt-0.5">EUDR requires six-decimal coordinates: a polygon above 4 ha, a point below.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <Field label="DDS reference from importer">
+          <Input
+            value={ddsRef}
+            onChange={(e) => setDdsRef(e.target.value)}
+            placeholder="EUDR reference issued in TRACES"
+            className="h-9 w-64 text-xs"
+          />
+        </Field>
+        <Button
+          onClick={() =>
+            save.mutate({
+              ddsReference: ddsRef || null,
+              submittedAt: ddsRef ? new Date().toISOString() : null,
+              status: ddsRef ? 'Submitted' : 'NotStarted',
+            })
+          }
+          disabled={!ddsRef || save.isPending}
+          className="h-9 text-xs"
+        >
+          Record reference
+        </Button>
+        <a
+          href={data.officialUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-9 items-center gap-1 text-xs text-brand-700 hover:underline"
+        >
+          <ExternalLink size={12} /> Commission guidance
+        </a>
+      </div>
+    </Card>
+  );
 }
 
 function Stepper({ steps, current }: { steps: string[]; current: string }) {
@@ -194,9 +351,44 @@ export function ShipmentDetailPage() {
     qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
   };
 
+  // Changing the destination re-resolves the whole checklist server-side, so the
+  // client does not try to derive requirements locally.
+  const [applying, setApplying] = useState(false);
+  const setDestination = async (countryCode: string) => {
+    setApplying(true);
+    try {
+      await api.patch(`/shipments/${id}/compliance/destination`, {
+        destinationCountryCode: countryCode || null,
+        productForm: sh?.productForm ?? 'Green',
+      });
+      await qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
+      qc.invalidateQueries({ queryKey: ['shipments'] });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const reapply = async () => {
+    setApplying(true);
+    try {
+      await api.post(`/shipments/${id}/compliance/apply`, { regenerate: false });
+      await qc.invalidateQueries({ queryKey: ['shipment', `/shipments/${id}`] });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const { data: profiles } = useQuery({
+    queryKey: ['compliance', 'profiles'],
+    queryFn: async () => (await api.get('/compliance/profiles')).data,
+  });
+
   if (isLoading || !sh) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
   const stepIdx = Math.max(0, TRACK_STEPS.indexOf(sh.trackingStatus));
   const buyer = sh.contract?.buyer;
+  const allDocs: any[] = sh.documents ?? [];
+  const applicableDocs = allDocs.filter((d: any) => d.status !== 'NotApplicable');
+  const retractedDocs = allDocs.filter((d: any) => d.status === 'NotApplicable');
 
   return (
     <div>
@@ -316,18 +508,154 @@ export function ShipmentDetailPage() {
           </Card>
 
           <Card className="p-5">
-            <div className="mb-3 text-sm font-semibold text-slate-800">Export documents</div>
+            {/* Destination drives this list, so it is editable here rather than fixed at creation. */}
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-800">Export documents</div>
+                <div className="text-xs text-slate-400">
+                  Required for {sh.destinationCountryName ?? 'an unspecified destination'} ·{' '}
+                  {sh.summary?.ready ?? 0} of {sh.summary?.total ?? 0} ready
+                  {sh.summary?.unverified ? ` · ${sh.summary.unverified} need checking` : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={sh.destinationCountryCode ?? ''}
+                  onChange={(e) => setDestination(e.target.value)}
+                  className="h-8 w-auto text-xs"
+                >
+                  <option value="">Destination —</option>
+                  {profiles?.map((p: any) => (
+                    <option key={p.countryCode} value={p.countryCode}>
+                      {p.countryName}
+                    </option>
+                  ))}
+                </Select>
+                <Button variant="ghost" onClick={reapply} className="h-8 text-xs">
+                  <RefreshCw size={13} className={applying ? 'animate-spin' : ''} /> Re-check
+                </Button>
+              </div>
+            </div>
+
+            {sh.summary && sh.summary.total > 0 && (
+              <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-brand-600 transition-all"
+                  style={{ width: `${Math.round(((sh.summary.ready ?? 0) / sh.summary.total) * 100)}%` }}
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
-              {sh.documents?.map((d: any) => (
-                <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2">
-                  <span className="text-xs text-slate-600">{d.docType}</span>
-                  <select className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs" value={d.status} onChange={(e) => setDoc(d.id, e.target.value)}>
-                    {['Pending', 'Ready', 'Submitted'].map((s) => <option key={s}>{s}</option>)}
-                  </select>
+              {applicableDocs.map((d: any) => (
+                <div
+                  key={d.id}
+                  className={`rounded-lg border px-3 py-2 ${
+                    d.status === 'NotApplicable'
+                      ? 'border-slate-100 bg-slate-50 opacity-60'
+                      : d.mandatory
+                        ? 'border-slate-200'
+                        : 'border-dashed border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-medium text-slate-700">{d.docType}</span>
+                        {d.mandatory ? (
+                          <span className="text-[10px] font-semibold uppercase text-brand-700">required</span>
+                        ) : (
+                          <span className="text-[10px] font-semibold uppercase text-slate-400">conditional</span>
+                        )}
+                        <VerificationBadge status={d.verificationStatus} />
+                        <IssuerBadge type={d.issuerType} />
+                      </div>
+                      {d.authority && (
+                        <div className="mt-0.5 text-[11px] text-slate-400">
+                          {d.authority}
+                          {d.validUntil ? ` · target by ${new Date(d.validUntil).toLocaleDateString()}` : ''}
+                          {d.reference ? ` · ref ${d.reference}` : ''}
+                        </div>
+                      )}
+                      {d.companyDocSnapshot && (
+                        <div className="mt-0.5 text-[11px] text-emerald-700">
+                          using company document {d.companyDocSnapshot.number}
+                          {d.companyDocSnapshot.expiresAt
+                            ? ` (expires ${new Date(d.companyDocSnapshot.expiresAt).toLocaleDateString()})`
+                            : ''}
+                        </div>
+                      )}
+                      {d.officialUrl && (
+                        <a
+                          href={d.officialUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline"
+                        >
+                          <ExternalLink size={10} /> authority source
+                        </a>
+                      )}
+                    </div>
+                    <select
+                      className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                      value={d.status}
+                      onChange={(e) => setDoc(d.id, e.target.value)}
+                    >
+                      {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ))}
+              {retractedDocs.length > 0 && (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer text-slate-400">
+                    {retractedDocs.length} document(s) no longer required for this destination
+                  </summary>
+                  <div className="mt-1.5 space-y-1 pl-2">
+                    {retractedDocs.map((d: any) => (
+                      <div key={d.id} className="text-slate-400 line-through">
+                        {d.docType}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
+
+            {/* Company documents are held once and referenced, never copied per shipment. */}
+            {sh.companyDocuments?.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                  <Building2 size={13} className="text-slate-400" />
+                  Company documents this shipment relies on
+                </div>
+                <div className="space-y-1">
+                  {sh.companyDocuments.map((c: any) => (
+                    <div key={c.requirementId} className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-600">{c.documentType}</span>
+                      <VerificationBadge status={c.verificationStatus} />
+                      {c.held ? (
+                        <span className="text-emerald-700">
+                          {c.held.number}
+                          {c.held.expiresAt ? ` · exp ${new Date(c.held.expiresAt).toLocaleDateString()}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-amber-700">not on file</span>
+                      )}
+                      <span className="ml-auto text-slate-400">{c.authority}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Card>
+
+          {/* EUDR is a separate module, not a checkbox on the checklist. */}
+          {(sh.destinationMarket === 'EU' || sh.eudr) && (
+            <EudrPanel shipment={sh} />
+          )}
 
           <Card className="p-5"><ActivityFeed entity="Shipment" entityId={id} /></Card>
         </div>

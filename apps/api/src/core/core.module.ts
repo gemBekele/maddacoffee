@@ -1,3 +1,7 @@
+import { ComplianceController } from './compliance.controller';
+import { TraceabilityController } from './traceability.controller';
+import { ComplianceService } from './compliance.service';
+
 import { Module } from '@nestjs/common';
 import { StationsController } from './stations';
 import { SuppliersController } from './suppliers';
@@ -44,8 +48,24 @@ import { ActivityService } from '../common/activity.service';
     ReportsController,
     EmailsController,
     ActivityController,
+    ComplianceController,
+    TraceabilityController,
   ],
-  providers: [NumberingService, AuditService, EmailService, ApprovalService, ActivityService],
-  exports: [NumberingService, AuditService, EmailService, ApprovalService, ActivityService],
+  providers: [
+    NumberingService,
+    AuditService,
+    EmailService,
+    ApprovalService,
+    ActivityService,
+    ComplianceService,
+  ],
+  exports: [
+    NumberingService,
+    AuditService,
+    EmailService,
+    ApprovalService,
+    ActivityService,
+    ComplianceService,
+  ],
 })
 export class CoreModule {}

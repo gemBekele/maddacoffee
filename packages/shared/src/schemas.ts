@@ -175,6 +175,17 @@ export const shipmentSchema = z.object({
   contractId: z.string().optional().nullable(),
   date: z.coerce.date().optional().nullable(),
   mode: z.enum(['Sea', 'Air']).default('Sea'),
+  // Destination drives the compliance checklist. Optional so a shipment can be
+  // created before the destination is confirmed; the checklist then resolves to
+  // the universal (origin-side) requirements only.
+  destinationCountryCode: z
+    .string()
+    .length(2)
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/)
+    .optional()
+    .nullable(),
+  productForm: z.enum(['Green', 'Roasted', 'Soluble', 'Liquid']).default('Green'),
   port: z.string().optional().nullable(),
   billOfLading: z.string().optional().nullable(),
   containerNo: z.string().optional().nullable(),
@@ -210,3 +221,72 @@ export const buyerSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 export type BuyerInput = z.infer<typeof buyerSchema>;
+
+// ───────────────────────────── Compliance ─────────────────────────────
+
+export const companyDocumentSchema = z.object({
+  docType: z.string().min(2),
+  title: z.string().min(2),
+  issuer: z.string().min(2),
+  number: z.string().min(1),
+  issuedAt: z.coerce.date(),
+  expiresAt: z.coerce.date().optional().nullable(),
+  countryCode: z
+    .string()
+    .length(2)
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/)
+    .optional()
+    .nullable(),
+  status: z.enum(['Valid', 'Expiring', 'Expired', 'Revoked']).optional(),
+  notes: z.string().optional().nullable(),
+});
+export type CompanyDocumentInput = z.infer<typeof companyDocumentSchema>;
+
+export const producerSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(2),
+  kind: z.enum(['FARMER', 'WASHING_STATION', 'COOPERATIVE']).default('FARMER'),
+  phone: z.string().optional().nullable(),
+  region: z.string().optional().nullable(),
+  zone: z.string().optional().nullable(),
+  woreda: z.string().optional().nullable(),
+  kebele: z.string().optional().nullable(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+export type ProducerInput = z.infer<typeof producerSchema>;
+
+export const plotSchema = z.object({
+  producerId: z.string().min(1),
+  name: z.string().optional().nullable(),
+  region: z.string().optional().nullable(),
+  zone: z.string().optional().nullable(),
+  woreda: z.string().optional().nullable(),
+  kebele: z.string().optional().nullable(),
+  polygon: z.any().optional().nullable(),
+  geolocationMethod: z.enum(['GPS', 'GIS', 'MAPPED']).optional().nullable(),
+  areaHa: z.coerce.number().optional().nullable(),
+  landTenure: z.enum(['FREEHOLD', 'LEASE', 'HGU', 'COOPERATIVE', 'OTHER']).optional().nullable(),
+  legalityDocRef: z.string().optional().nullable(),
+  harvestedFrom: z.coerce.date().optional().nullable(),
+  harvestedTo: z.coerce.date().optional().nullable(),
+});
+export type PlotInput = z.infer<typeof plotSchema>;
+
+export const eudrStatementSchema = z.object({
+  ddsReference: z.string().optional().nullable(),
+  verificationNumber: z.string().optional().nullable(),
+  submittedAt: z.coerce.date().optional().nullable(),
+  submittedByName: z.string().optional().nullable(),
+  status: z
+    .enum(['NotStarted', 'GeodataPending', 'GeodataReady', 'Submitted', 'Accepted', 'Rejected'])
+    .optional(),
+  commodity: z.string().optional(),
+  hsCode: z.string().optional().nullable(),
+  quantityKg: z.coerce.number().optional().nullable(),
+  countryOfProduction: z.string().optional(),
+  notes: z.string().optional().nullable(),
+});
+export type EudrStatementInput = z.infer<typeof eudrStatementSchema>;
