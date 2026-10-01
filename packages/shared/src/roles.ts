@@ -71,6 +71,11 @@ export const PERMISSIONS = [
   'traceability.read',
   'traceability.write',
   'market.read',
+  'employee.read',
+  'employee.write',
+  'payroll.read',
+  'payroll.write',
+  'payroll.approve',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -110,6 +115,7 @@ const FINANCE: Permission[] = [
   'finance.read', 'finance.approve',
   'purchase.read', 'commercial.read', 'proforma.read', 'contract.read',
   'report.read', 'audit.read',
+  'employee.read', 'payroll.read', 'payroll.approve',
 ];
 const STATION: Permission[] = [
   'dashboard.read',
@@ -161,7 +167,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'inventory.read',
     'compliance.read', 'traceability.read',
   ],
-  hr_admin: ['dashboard.read', 'users.manage', 'settings.manage'],
+  hr_admin: [
+    'dashboard.read',
+    'users.manage', 'settings.manage',
+    'employee.read', 'employee.write',
+    'payroll.read', 'payroll.write', 'payroll.approve',
+    'report.read',
+  ],
   auditor: ALL.filter((p) => p === 'audit.read' || p.endsWith('.read')),
 };
 

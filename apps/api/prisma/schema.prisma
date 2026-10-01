@@ -167,6 +167,7 @@ model Station {
   updatedAt    DateTime  @updatedAt
 
   users       UserStation[]
+  employees   Employee[]
   purchases   CherryPurchase[]
   batches     ProcessingBatch[]
   lots        Lot[]
@@ -1021,4 +1022,118 @@ model MarketFetchLog {
 
   @@index([createdAt])
   @@map("market_fetch_logs")
+}
+
+// ───────────────────────────── Payroll ─────────────────────────────
+// Employees are deliberately separate from User: most staff on a payroll never
+// log in to the ERP, and tying a payslip to an account would force one.
+
+model Employee {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  employmentType String   @default("PERMANENT") // PERMANENT | CONTRACT
+  position       String?
+  department     String?
+  stationId      String?
+  hireDate       DateTime
+  endDate        DateTime? // contract end, or termination date
+  phone          String?
+  email          String?
+  tin            String?
+  bankName       String?
+  bankAccount    String?
+
+  basicSalary          Decimal @db.Decimal(14, 2)
+  transportAllowance   Decimal @default(0) @db.Decimal(14, 2)
+  housingAllowance     Decimal @default(0) @db.Decimal(14, 2)
+  otherAllowance       Decimal @default(0) @db.Decimal(14, 2)
+  currency             String  @default("ETB")
+
+  // Private-sector pension applies to permanent Ethiopian employees. Contract
+  // staff are normally excluded, but this is overridable because the
+  // engagement is what decides it, not the label.
+  pensionEligible Boolean @default(true)
+
+  status    String   @default("Active") // Active | OnLeave | Terminated
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  station Station?      @relation(fields: [stationId], references: [id])
+  lines   PayrollLine[]
+
+  @@index([status])
+  @@index([employmentType])
+  @@map("employees")
+}
+
+model PayrollRun {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  periodYear   Int
+  periodMonth  Int // 1-12
+  date         DateTime
+  status       String   @default("Draft") // Draft | Approved | Paid
+  notes        String?
+
+  employeeCount      Int     @default(0)
+  totalGross         Decimal @default(0) @db.Decimal(18, 2)
+  totalIncomeTax     Decimal @default(0) @db.Decimal(18, 2)
+  totalEmployeePension Decimal @default(0) @db.Decimal(18, 2)
+  totalOtherDeductions Decimal @default(0) @db.Decimal(18, 2)
+  totalNet           Decimal @default(0) @db.Decimal(18, 2)
+  totalEmployerPension Decimal @default(0) @db.Decimal(18, 2)
+  totalEmployerCost  Decimal @default(0) @db.Decimal(18, 2)
+
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  paidAt       DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lines PayrollLine[]
+
+  @@unique([periodYear, periodMonth])
+  @@index([status])
+  @@map("payroll_runs")
+}
+
+// Employee details are snapshotted onto the line. A later salary change or a
+// name correction must not silently rewrite a payroll that has already been
+// approved and paid.
+model PayrollLine {
+  id         String @id @default(cuid())
+  runId      String
+  employeeId String
+
+  employeeCode   String
+  employeeName   String
+  employmentType String
+  position       String?
+  pensionEligible Boolean @default(true)
+
+  basicSalary  Decimal @db.Decimal(14, 2)
+  allowances   Decimal @default(0) @db.Decimal(14, 2)
+  overtime     Decimal @default(0) @db.Decimal(14, 2)
+  grossPay     Decimal @db.Decimal(14, 2)
+
+  taxableIncome    Decimal @db.Decimal(14, 2)
+  incomeTax        Decimal @default(0) @db.Decimal(14, 2)
+  employeePension  Decimal @default(0) @db.Decimal(14, 2)
+  otherDeductions  Decimal @default(0) @db.Decimal(14, 2)
+  netPay           Decimal @db.Decimal(14, 2)
+
+  employerPension  Decimal @default(0) @db.Decimal(14, 2)
+  employerCost     Decimal @db.Decimal(14, 2)
+
+  notes String?
+
+  run      PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id])
+
+  @@unique([runId, employeeId])
+  @@index([runId])
+  @@map("payroll_lines")
 }

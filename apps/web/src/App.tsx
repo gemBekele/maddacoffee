@@ -26,6 +26,9 @@ const CommercialPage = named(() => import('@/pages/sales'), 'CommercialPage');
 const ShipmentsPage = named(() => import('@/pages/sales'), 'ShipmentsPage');
 const CompliancePage = named(() => import('@/pages/Compliance'), 'CompliancePage');
 const MarketPage = named(() => import('@/pages/Market'), 'MarketPage');
+const EmployeesPage = named(() => import('@/pages/Employees'), 'EmployeesPage');
+const PayrollPage = named(() => import('@/pages/Payroll'), 'PayrollPage');
+const PayrollDetailPage = named(() => import('@/pages/Payroll'), 'PayrollDetailPage');
 const ProformaDetailPage = named(() => import('@/pages/sales-detail'), 'ProformaDetailPage');
 const CommercialDetailPage = named(() => import('@/pages/sales-detail'), 'CommercialDetailPage');
 const ShipmentDetailPage = named(() => import('@/pages/sales-detail'), 'ShipmentDetailPage');
@@ -77,6 +80,9 @@ export default function App() {
             <Route path="/shipments/:id" element={P(<ShipmentDetailPage />)} />
             <Route path="/compliance" element={P(<CompliancePage />)} />
             <Route path="/market" element={P(<MarketPage />)} />
+            <Route path="/employees" element={P(<EmployeesPage />)} />
+            <Route path="/payroll" element={P(<PayrollPage />)} />
+            <Route path="/payroll/:id" element={P(<PayrollDetailPage />)} />
             <Route path="/payments" element={P(<PaymentsPage />)} />
             <Route path="/expenses" element={P(<ExpensesPage />)} />
             <Route path="/approvals" element={P(<ApprovalsPage />)} />

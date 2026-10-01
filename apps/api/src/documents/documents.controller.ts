@@ -67,4 +67,25 @@ export class DocumentsController {
     const r = await this.pdf.salesContract(id);
     this.send(res, r.filename, r.buffer, inline === '1' || inline === 'true');
   }
+
+  /** Payroll register for a month. */
+  @Get('payroll/:runId')
+  @RequirePermissions('payroll.read')
+  async payroll(@Param('runId') runId: string, @Query('inline') inline: string, @Res() res: Response) {
+    const r = await this.pdf.payrollRegister(runId);
+    this.send(res, r.filename, r.buffer, inline === '1' || inline === 'true');
+  }
+
+  /** One employee's payslip. */
+  @Get('payroll/:runId/payslip/:lineId')
+  @RequirePermissions('payroll.read')
+  async payslip(
+    @Param('runId') runId: string,
+    @Param('lineId') lineId: string,
+    @Query('inline') inline: string,
+    @Res() res: Response,
+  ) {
+    const r = await this.pdf.payslip(runId, lineId);
+    this.send(res, r.filename, r.buffer, inline === '1' || inline === 'true');
+  }
 }

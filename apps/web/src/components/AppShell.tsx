@@ -28,6 +28,7 @@ import {
   UserRound,
   Globe2,
   TrendingUp,
+  Contact,
 } from 'lucide-react';
 import { cn, SyncChip } from './ui';
 import { useAuth } from '@/lib/auth';
@@ -56,6 +57,8 @@ const NAV: NavItem[] = [
   { to: '/shipments', key: 'shipments', icon: <Truck size={18} />, perm: 'shipment.read', group: 'sales' },
   { to: '/compliance', key: 'compliance', icon: <Globe2 size={18} />, perm: 'compliance.read', group: 'sales' },
   { to: '/market', key: 'market', icon: <TrendingUp size={18} />, perm: 'market.read', group: 'tools' },
+  { to: '/employees', key: 'employees', icon: <Contact size={18} />, perm: 'employee.read', group: 'finance' },
+  { to: '/payroll', key: 'payroll', icon: <Wallet size={18} />, perm: 'payroll.read', group: 'finance' },
   { to: '/payments', key: 'payments', icon: <Wallet size={18} />, perm: 'payment.read', group: 'finance' },
   { to: '/expenses', key: 'expenses', icon: <Receipt size={18} />, perm: 'expense.read', group: 'finance' },
   { to: '/approvals', key: 'approvals', icon: <ClipboardCheck size={18} />, perm: 'dashboard.read', group: 'finance' },

@@ -281,3 +281,38 @@ export const eudrStatementSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 export type EudrStatementInput = z.infer<typeof eudrStatementSchema>;
+
+// ───────────────────────────── Payroll ─────────────────────────────
+
+export const employeeSchema = z.object({
+  code: z.string().optional(),
+  name: z.string().min(2),
+  employmentType: z.enum(['PERMANENT', 'CONTRACT']).default('PERMANENT'),
+  position: z.string().optional().nullable(),
+  department: z.string().optional().nullable(),
+  stationId: z.string().optional().nullable(),
+  hireDate: z.coerce.date(),
+  endDate: z.coerce.date().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable().or(z.literal('')),
+  tin: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankAccount: z.string().optional().nullable(),
+  basicSalary: z.coerce.number().nonnegative(),
+  transportAllowance: z.coerce.number().nonnegative().default(0),
+  housingAllowance: z.coerce.number().nonnegative().default(0),
+  otherAllowance: z.coerce.number().nonnegative().default(0),
+  currency: z.string().default('ETB'),
+  pensionEligible: z.boolean().optional(),
+  status: z.enum(['Active', 'OnLeave', 'Terminated']).default('Active'),
+  notes: z.string().optional().nullable(),
+});
+export type EmployeeInput = z.infer<typeof employeeSchema>;
+
+export const payrollRunSchema = z.object({
+  periodYear: z.coerce.number().int().min(2000).max(2100),
+  periodMonth: z.coerce.number().int().min(1).max(12),
+  date: z.coerce.date().optional(),
+  notes: z.string().optional().nullable(),
+});
+export type PayrollRunInput = z.infer<typeof payrollRunSchema>;

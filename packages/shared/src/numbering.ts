@@ -15,6 +15,8 @@ export const DOC_PREFIX = {
   commercial: 'COM',
   contract: 'CON',
   shipment: 'SHP',
+  employee: 'EMP',
+  payroll: 'PR',
 } as const;
 
 export type DocPrefixKey = keyof typeof DOC_PREFIX;

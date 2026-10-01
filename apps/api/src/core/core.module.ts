@@ -4,6 +4,7 @@ import { ComplianceService } from './compliance.service';
 import { DocumentsController } from '../documents/documents.controller';
 import { PdfService } from '../documents/pdf.service';
 import { MarketController } from './market.controller';
+import { EmployeesController, PayrollController } from './payroll';
 import { MarketService } from './market.service';
 
 import { Module } from '@nestjs/common';
@@ -56,6 +57,8 @@ import { ActivityService } from '../common/activity.service';
     TraceabilityController,
     DocumentsController,
     MarketController,
+    EmployeesController,
+    PayrollController,
   ],
   providers: [
     NumberingService,

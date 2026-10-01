@@ -12,30 +12,47 @@ export class NumberingService {
     return '';
   }
 
+  /**
+   * Next document number for a type.
+   *
+   * The counter is keyed per period, not per type. A single counter with a
+   * period tag resets to 1 whenever the tag changes, which means numbering a
+   * document dated *earlier* than the last one resets the sequence and reissues
+   * a number that already exists. That is reachable in practice: entering an
+   * employee with an old hire date, or backdating an invoice.
+   *
+   * A per-period key removes the ordering assumption entirely. A unique
+   * constraint on the document code still backstops the one case this cannot
+   * cover — a period that predates the sequence and was never counted — and a
+   * violation surfaces loudly rather than issuing a duplicate.
+   */
   async next(key: DocPrefixKey, date: Date = new Date()): Promise<string> {
     const fmt = defaultFormat(key);
     const tag = this.periodTag(fmt.reset, date);
+    const counterKey = tag ? `${key}:${tag}` : key;
 
     return this.prisma.$transaction(async (tx) => {
-      let seq = await tx.numberSequence.findUnique({ where: { key } });
+      let seq = await tx.numberSequence.findUnique({ where: { key: counterKey } });
       if (!seq) {
+        // Carry over the count from the pre-per-period row when it covers the
+        // same period, so switching does not restart a live sequence.
+        const legacy = tag ? await tx.numberSequence.findUnique({ where: { key } }) : null;
+        const start = legacy && legacy.periodTag === tag ? legacy.current : 0;
         seq = await tx.numberSequence.create({
           data: {
-            key,
+            key: counterKey,
             prefix: fmt.prefix,
             includeYear: fmt.includeYear,
             padding: fmt.padding,
             reset: fmt.reset,
-            current: 0,
+            current: start,
             periodTag: tag,
           },
         });
       }
-      const restart = seq.reset !== 'never' && seq.periodTag !== tag;
-      const nextVal = restart ? 1 : seq.current + 1;
       const updated = await tx.numberSequence.update({
-        where: { key },
-        data: { current: nextVal, periodTag: tag },
+        where: { key: counterKey },
+        data: { current: seq.current + 1, periodTag: tag },
       });
       return formatDocumentNumber(
         {

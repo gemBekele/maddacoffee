@@ -5,3 +5,4 @@ export * from './currency';
 export * from './schemas';
 export * from './compliance';
 export * from './compliance-data';
+export * from './payroll';

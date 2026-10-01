@@ -851,6 +851,207 @@ export class PdfService {
     };
   }
 
+  // ── payroll ──────────────────────────────────────────────────────────
+
+  private monthName(m: number) {
+    return ['January','February','March','April','May','June','July','August','September','October','November','December'][m - 1] ?? String(m);
+  }
+
+  /** Payroll register: every line for a month, with the statutory totals. */
+  async payrollRegister(runId: string): Promise<RenderedDocument> {
+    const run = await this.prisma.payrollRun.findUnique({
+      where: { id: runId },
+      include: { lines: { orderBy: { employeeName: 'asc' } } },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found');
+    const company = await this.company();
+    const period = `${this.monthName(run.periodMonth)} ${run.periodYear}`;
+
+    const b = new DocumentBuilder(
+      { title: 'Payroll Register', reference: `${run.code} · ${period}`, company },
+      this.footer(company),
+    );
+
+    const n = (v: unknown) => Number(v ?? 0);
+
+    b.keyValues(
+      [
+        { label: 'Payroll run', value: run.code },
+        { label: 'Period', value: period },
+        { label: 'Status', value: run.status },
+        { label: 'Employees', value: String(run.employeeCount) },
+        { label: 'Prepared', value: dateLong(run.date) },
+        { label: 'Currency', value: 'ETB' },
+      ],
+      3,
+    );
+
+    b.space(6);
+    b.sectionTitle('Register');
+
+    b.table({
+      columns: [
+        { header: '#', width: 0.04, render: (_r, i) => String(i + 1) },
+        { header: 'Employee', width: 0.19, key: 'employeeName' },
+        { header: 'Type', width: 0.1, render: (r) => (r.employmentType === 'PERMANENT' ? 'Perm.' : 'Contract') },
+        { header: 'Basic', width: 0.13, align: 'right', render: (r) => num(r.basicSalary) },
+        { header: 'Allow.', width: 0.11, align: 'right', render: (r) => num(r.allowances) },
+        { header: 'Gross', width: 0.13, align: 'right', render: (r) => num(r.grossPay) },
+        { header: 'Income tax', width: 0.12, align: 'right', render: (r) => num(r.incomeTax) },
+        { header: 'Pension 7%', width: 0.11, align: 'right', render: (r) => num(r.employeePension) },
+        { header: 'Net pay', width: 0.13, align: 'right', render: (r) => num(r.netPay) },
+      ],
+      rows: run.lines,
+      emptyText: 'No employees in this run.',
+      footRows: [
+        ['Total gross', num(run.totalGross)],
+        ['Total income tax', num(run.totalIncomeTax)],
+        ['Total employee pension (7%)', num(run.totalEmployeePension)],
+        ['Total other deductions', num(run.totalOtherDeductions)],
+        ['TOTAL NET PAY', num(run.totalNet)],
+      ],
+    });
+
+    b.space(4);
+    b.sectionTitle('Employer contributions and cost');
+    b.table({
+      columns: [
+        { header: 'Item', width: 0.6, key: 'item' },
+        { header: 'Amount ETB', width: 0.4, align: 'right', render: (r) => num(r.amount) },
+      ],
+      rows: [
+        { item: 'Gross salaries', amount: n(run.totalGross) },
+        { item: 'Employer pension (11%)', amount: n(run.totalEmployerPension) },
+        { item: 'Total employer cost', amount: n(run.totalEmployerCost) },
+        { item: 'Income tax remittable to the Ministry of Revenues', amount: n(run.totalIncomeTax) },
+        {
+          item: 'Pension remittable (employee 7% + employer 11%)',
+          amount: n(run.totalEmployeePension) + n(run.totalEmployerPension),
+        },
+      ],
+    });
+
+    b.note(
+      'Income tax is charged on gross taxable income under the Federal Income Tax Amendment Proclamation No. 1395/2025, ' +
+        'effective 1 July 2025. Pension is 7% employee and 11% employer under the Private Organization Employees Pension ' +
+        'Proclamation No. 715/2011. The employee contribution is withheld after income tax, not before it.',
+      'muted',
+    );
+
+    b.signatureBlock({
+      declaration: 'Prepared by the payroll officer and approved by the authorised signatory.',
+      labels: ['Prepared by', 'Approved by', 'Date'],
+    });
+
+    return {
+      docType: 'Payroll Register',
+      filename: `${run.code}-payroll-register-${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}.pdf`,
+      buffer: await b.toBuffer(),
+      isPrimaryDocument: true,
+    };
+  }
+
+  /** Individual payslip. */
+  async payslip(runId: string, lineId: string): Promise<RenderedDocument> {
+    const line = await this.prisma.payrollLine.findUnique({ where: { id: lineId }, include: { run: true } });
+    if (!line || line.runId !== runId) throw new NotFoundException('Payslip not found');
+    const company = await this.company();
+    const run = line.run;
+    const period = `${this.monthName(run.periodMonth)} ${run.periodYear}`;
+    const n = (v: unknown) => Number(v ?? 0);
+
+    const b = new DocumentBuilder(
+      { title: 'Payslip', reference: `${line.employeeCode} · ${period}`, company },
+      `${company.name} · Payslip ${period} · confidential`,
+    );
+
+    b.keyValues(
+      [
+        { label: 'Employee', value: line.employeeName },
+        { label: 'Employee code', value: line.employeeCode },
+        { label: 'Position', value: line.position ?? '—' },
+        { label: 'Employment type', value: line.employmentType === 'PERMANENT' ? 'Permanent' : 'Contract' },
+        { label: 'Pay period', value: period },
+        { label: 'Payroll run', value: run.code },
+      ],
+      2,
+    );
+
+    b.space(6);
+    b.sectionTitle('Earnings');
+    b.table({
+      columns: [
+        { header: 'Item', width: 0.7, key: 'item' },
+        { header: 'Amount ETB', width: 0.3, align: 'right', render: (r) => num(r.amount) },
+      ],
+      rows: [
+        { item: 'Basic salary', amount: n(line.basicSalary) },
+        { item: 'Allowances', amount: n(line.allowances) },
+        ...(n(line.overtime) > 0 ? [{ item: 'Overtime', amount: n(line.overtime) }] : []),
+      ],
+      footRows: [['Gross pay', num(line.grossPay)]],
+    });
+
+    b.space(4);
+    b.sectionTitle('Deductions');
+    b.table({
+      columns: [
+        { header: 'Item', width: 0.7, key: 'item' },
+        { header: 'Amount ETB', width: 0.3, align: 'right', render: (r) => num(r.amount) },
+      ],
+      rows: [
+        { item: 'Income tax (PAYE)', amount: n(line.incomeTax) },
+        ...(line.pensionEligible ? [{ item: 'Pension contribution (7%)', amount: n(line.employeePension) }] : []),
+        ...(n(line.otherDeductions) > 0 ? [{ item: 'Other deductions', amount: n(line.otherDeductions) }] : []),
+      ],
+      footRows: [['Total deductions', num(n(line.incomeTax) + n(line.employeePension) + n(line.otherDeductions))]],
+    });
+
+    b.space(6);
+    b.table({
+      columns: [
+        { header: 'Net pay', width: 0.7, render: () => 'NET PAY' },
+        { header: 'Amount ETB', width: 0.3, align: 'right', render: () => num(line.netPay) },
+      ],
+      rows: [{}],
+    });
+
+    b.space(2);
+    b.sectionTitle('Employer contributions (not deducted from pay)');
+    b.table({
+      columns: [
+        { header: 'Item', width: 0.7, key: 'item' },
+        { header: 'Amount ETB', width: 0.3, align: 'right', render: (r) => num(r.amount) },
+      ],
+      rows: line.pensionEligible
+        ? [
+            { item: 'Employer pension contribution (11%)', amount: n(line.employerPension) },
+            { item: 'Total cost of employment', amount: n(line.employerCost) },
+          ]
+        : [{ item: 'No pension contribution for this employment type', amount: 0 }],
+    });
+
+    if (line.notes) {
+      b.space(3);
+      b.note(line.notes, 'muted');
+    }
+
+    b.note(
+      'Tax is charged on gross taxable income under the Federal Income Tax Amendment Proclamation No. 1395/2025. ' +
+        'Where shown, the pension contribution is 7% of salary under the Private Organization Employees Pension Proclamation No. 715/2011.',
+      'muted',
+    );
+
+    b.signatureBlock({ labels: ['Employee signature', 'Date'] });
+
+    return {
+      docType: 'Payslip',
+      filename: `payslip-${line.employeeCode}-${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}.pdf`,
+      buffer: await b.toBuffer(),
+      isPrimaryDocument: true,
+    };
+  }
+
   // ── dispatcher ───────────────────────────────────────────────────────
 
   /**
