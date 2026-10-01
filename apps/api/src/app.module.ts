@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { RateLimitModule } from './common/rate-limit.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ReferenceModule } from './reference/reference.module';
@@ -13,6 +14,7 @@ import { PermissionsGuard } from './common/permissions.guard';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '../../.env'] }),
     PrismaModule,
+    RateLimitModule,
     AuthModule,
     UsersModule,
     ReferenceModule,

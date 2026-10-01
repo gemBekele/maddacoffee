@@ -46,7 +46,13 @@ export class StationsController {
 
   @Patch(':id')
   @RequirePermissions('station.write')
-  async update(@Param('id') id: string, @Body() body: Partial<StationInput>, @CurrentUser() actor: AuthUser) {
+  // Validated against a partial schema so a client cannot write arbitrary
+  // columns such as code or createdAt.
+  async update(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(stationSchema.partial())) body: Partial<StationInput>,
+    @CurrentUser() actor: AuthUser,
+  ) {
     const station = await this.prisma.station.update({ where: { id }, data: body as any });
     await this.audit.log({ userId: actor.id, action: 'UPDATE', entity: 'Station', entityId: id });
     return station;

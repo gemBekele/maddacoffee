@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -56,6 +56,19 @@ export class ApprovalService {
   }
 
   async decide(id: string, status: 'Approved' | 'Rejected', decidedById: string, note?: string) {
+    const existing = await this.prisma.approval.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Approval not found');
+    // Separation of duties: whoever raised the request cannot clear it. An
+    // approval that the requester can grant themselves is not a control.
+    if (existing.requestedById && existing.requestedById === decidedById) {
+      throw new ForbiddenException(
+        'This request was raised by you. Approval must be given by someone else.',
+      );
+    }
+    if (existing.status !== 'Pending') {
+      throw new BadRequestException(`This request has already been ${existing.status.toLowerCase()}.`);
+    }
+
     const approval = await this.prisma.approval.update({
       where: { id },
       data: { status, decidedById, note: note ?? null, decidedAt: new Date() },

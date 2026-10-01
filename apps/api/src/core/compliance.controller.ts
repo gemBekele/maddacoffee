@@ -4,7 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { AuditService } from '../common/audit.service';
 import { ZodValidationPipe } from '../common/zod.pipe';
-import { companyDocumentSchema, type CompanyDocumentInput } from '@madda/shared';
+import {
+  companyDocumentSchema,
+  complianceRequirementSchema,
+  type CompanyDocumentInput,
+  type ComplianceRequirementInput,
+} from '@madda/shared';
 
 /**
  * Country compliance profiles, requirements, and document templates.
@@ -107,7 +112,11 @@ export class ComplianceController {
 
   @Patch('company-documents/:id')
   @RequirePermissions('settings.manage')
-  async updateCompanyDocument(@Param('id') id: string, @Body() body: any, @CurrentUser() actor: AuthUser) {
+  async updateCompanyDocument(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyDocumentSchema.partial())) body: Partial<CompanyDocumentInput>,
+    @CurrentUser() actor: AuthUser,
+  ) {
     const before = await this.prisma.companyDocument.findUnique({ where: { id } });
     const doc = await this.prisma.companyDocument.update({
       where: { id },
@@ -187,7 +196,11 @@ export class ComplianceController {
 
   @Patch('requirements/:id')
   @RequirePermissions('settings.manage')
-  async updateRequirement(@Param('id') id: string, @Body() body: any, @CurrentUser() actor: AuthUser) {
+  async updateRequirement(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(complianceRequirementSchema.partial())) body: Partial<ComplianceRequirementInput>,
+    @CurrentUser() actor: AuthUser,
+  ) {
     const before = await this.prisma.complianceRequirement.findUnique({ where: { id } });
     const req = await this.prisma.complianceRequirement.update({ where: { id }, data: body });
     await this.audit.log({ userId: actor.id, action: 'UPDATE', entity: 'ComplianceRequirement', entityId: id, before, after: body });
@@ -196,7 +209,10 @@ export class ComplianceController {
 
   @Post('requirements')
   @RequirePermissions('settings.manage')
-  async createRequirement(@Body() body: any, @CurrentUser() actor: AuthUser) {
+  async createRequirement(
+    @Body(new ZodValidationPipe(complianceRequirementSchema)) body: ComplianceRequirementInput,
+    @CurrentUser() actor: AuthUser,
+  ) {
     const req = await this.prisma.complianceRequirement.create({ data: body });
     await this.audit.log({ userId: actor.id, action: 'CREATE', entity: 'ComplianceRequirement', entityId: req.id, after: body });
     return req;

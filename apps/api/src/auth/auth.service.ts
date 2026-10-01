@@ -41,21 +41,29 @@ export class AuthService {
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
     });
-    const payload = { sub: user.id };
+    // The `typ` claim separates the two token kinds. Without it a refresh token
+    // is accepted as an access token, so a 30-day credential works as a full
+    // session and the short access TTL stops meaning anything.
     return {
-      accessToken: await this.jwt.signAsync(payload, {
-        expiresIn: process.env.JWT_ACCESS_TTL || '15m',
-      }),
-      refreshToken: await this.jwt.signAsync(payload, {
-        expiresIn: process.env.JWT_REFRESH_TTL || '30d',
-      }),
+      accessToken: await this.jwt.signAsync(
+        { sub: user.id, typ: 'access' },
+        { expiresIn: process.env.JWT_ACCESS_TTL || '15m' },
+      ),
+      refreshToken: await this.jwt.signAsync(
+        { sub: user.id, typ: 'refresh' },
+        { expiresIn: process.env.JWT_REFRESH_TTL || '30d' },
+      ),
       user: this.shape(user),
     };
   }
 
   async refresh(refreshToken: string) {
     try {
-      const payload = await this.jwt.verifyAsync(refreshToken);
+      const payload = await this.jwt.verifyAsync<{ sub: string; typ?: string }>(refreshToken);
+      // Only a refresh token may be exchanged here.
+      if (payload.typ && payload.typ !== 'refresh') {
+        throw new UnauthorizedException('Not a refresh token');
+      }
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
         include: { roles: { include: { role: true } }, stations: true },
@@ -63,7 +71,7 @@ export class AuthService {
       if (!user || !user.isActive) throw new UnauthorizedException();
       return {
         accessToken: await this.jwt.signAsync(
-          { sub: user.id },
+          { sub: user.id, typ: 'access' },
           { expiresIn: process.env.JWT_ACCESS_TTL || '15m' },
         ),
         user: this.shape(user),

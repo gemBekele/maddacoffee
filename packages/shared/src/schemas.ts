@@ -302,3 +302,38 @@ export const payrollRunSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 export type PayrollRunInput = z.infer<typeof payrollRunSchema>;
+
+/**
+ * Compliance requirement admin.
+ *
+ * Only the fields an administrator is actually expected to edit. Without this
+ * the raw request body reached Prisma, so id, createdAt and any other column
+ * were writable from the API.
+ */
+export const complianceRequirementSchema = z.object({
+  countryCode: z.string().default('*'),
+  marketBlock: z.string().optional().nullable(),
+  name: z.string().min(2),
+  description: z.string().min(1),
+  authority: z.string().min(1),
+  requirementType: z.string().min(1),
+  scope: z.string().min(1),
+  issuerType: z.string().min(1),
+  documentType: z.string().min(1),
+  mandatory: z.boolean().default(true),
+  conditional: z.boolean().default(false),
+  triggerConditions: z.any().optional().nullable(),
+  requiredData: z.any().optional().nullable(),
+  submissionMethod: z.string().default('PAPER'),
+  officialUrl: z.string().optional().nullable(),
+  legalBasis: z.string().optional().nullable(),
+  leadTimeDays: z.coerce.number().int().optional().nullable(),
+  validityDays: z.coerce.number().int().optional().nullable(),
+  appliesToImporter: z.boolean().optional(),
+  notes: z.string().optional().nullable(),
+  effectiveFrom: z.coerce.date().optional(),
+  effectiveUntil: z.coerce.date().optional().nullable(),
+  verificationStatus: z.enum(['VERIFIED', 'UNVERIFIED', 'NEEDS_LOCAL_CHECK']).optional(),
+  verificationSource: z.string().optional().nullable(),
+});
+export type ComplianceRequirementInput = z.infer<typeof complianceRequirementSchema>;

@@ -43,7 +43,13 @@ export class SuppliersController {
 
   @Patch(':id')
   @RequirePermissions('supplier.write')
-  async update(@Param('id') id: string, @Body() body: Partial<SupplierInput>, @CurrentUser() actor: AuthUser) {
+  // Validated against a partial schema. Without it the raw body went straight
+  // to Prisma, so any column (code, createdAt, id) could be written by a client.
+  async update(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(supplierSchema.partial())) body: Partial<SupplierInput>,
+    @CurrentUser() actor: AuthUser,
+  ) {
     const supplier = await this.prisma.supplier.update({ where: { id }, data: body as any });
     await this.audit.log({ userId: actor.id, action: 'UPDATE', entity: 'Supplier', entityId: id });
     return supplier;

@@ -5,10 +5,16 @@ import { NumberingService } from '../common/numbering.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { cherryPurchaseSchema, type CherryPurchaseInput } from '@madda/shared';
+import { ApprovalService } from '../common/approval.service';
 
 @Controller('purchases')
 export class PurchasesController {
-  constructor(private prisma: PrismaService, private audit: AuditService, private numbering: NumberingService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private numbering: NumberingService,
+    private approval: ApprovalService,
+  ) {}
 
   @Get()
   @RequirePermissions('purchase.read')
@@ -36,6 +42,8 @@ export class PurchasesController {
     // the one that has to appear on the record.
     const receiptNo = body.receiptNo?.trim() || (await this.numbering.next('receipt', body.date));
     const totalAmount = Number(body.cherryKg) * Number(body.pricePerKg);
+    // Honour the purchase approval setting, which previously had no effect.
+    const needs = await this.approval.needed('purchase', totalAmount);
     const purchase = await this.prisma.cherryPurchase.create({
       data: {
         code,
@@ -47,15 +55,26 @@ export class PurchasesController {
         pricePerKg: body.pricePerKg,
         totalAmount,
         currency: body.currency,
-        paymentStatus: body.paymentStatus,
+        paymentStatus: needs ? 'Pending' : body.paymentStatus,
         harvestYear: body.harvestYear ?? null,
         notes: body.notes ?? null,
         createdById: actor.id,
       },
       include: { supplier: true, station: true },
     });
+    if (needs) {
+      await this.approval.request({
+        entity: 'CherryPurchase',
+        entityId: purchase.id,
+        code,
+        summary: `${body.cherryKg} kg cherry from supplier`,
+        amount: totalAmount,
+        currency: body.currency,
+        requestedById: actor.id,
+      });
+    }
     await this.audit.log({ userId: actor.id, action: 'CREATE', entity: 'CherryPurchase', entityId: purchase.id, after: purchase });
-    return purchase;
+    return { ...purchase, approvalRequired: needs };
   }
 
   @Patch(':id')

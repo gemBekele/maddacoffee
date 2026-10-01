@@ -58,7 +58,10 @@ export class TraceabilityController {
 
   @Patch('producers/:id')
   @RequirePermissions('quality.write')
-  updateProducer(@Param('id') id: string, @Body() body: any) {
+  updateProducer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(producerSchema.partial())) body: Partial<ProducerInput>,
+  ) {
     return this.prisma.producer.update({ where: { id }, data: body });
   }
 
@@ -109,7 +112,10 @@ export class TraceabilityController {
 
   @Patch('plots/:id')
   @RequirePermissions('quality.write')
-  updatePlot(@Param('id') id: string, @Body() body: any) {
+  updatePlot(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(plotSchema.partial())) body: Partial<PlotInput>,
+  ) {
     return this.prisma.plot.update({ where: { id }, data: body });
   }
 
