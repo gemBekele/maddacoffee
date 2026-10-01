@@ -5,6 +5,9 @@ import { NumberingService } from '../common/numbering.service';
 import { EmailService } from '../common/email.service';
 import { ActivityService } from '../common/activity.service';
 import { ComplianceService } from './compliance.service';
+import { PdfService } from '../documents/pdf.service';
+import { proformaEmail, commercialInvoiceEmail, testEmail } from '../common/email-templates';
+import { kg, dateLong } from '../documents/pdf-core';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import {
@@ -135,6 +138,7 @@ export class ProformasController {
     private numbering: NumberingService,
     private email: EmailService,
     private activity: ActivityService,
+    private pdf: PdfService,
     private compliance: ComplianceService,
   ) {}
 
@@ -207,24 +211,55 @@ export class ProformasController {
   async send(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     const pf = await this.prisma.proformaInvoice.findUnique({ where: { id }, include: { buyer: true, lines: true } });
     if (!pf?.buyer?.email) return { status: 'Failed', error: 'Buyer has no email address' };
+
     const total = linesTotal(pf.lines);
-    const rows = pf.lines
-      .map((l) => `<tr><td>${l.description}</td><td>${l.quantityKg} kg</td><td>${l.pricePerKg}</td><td>${formatMoney(Number(l.amount), pf.currency)}</td></tr>`)
-      .join('');
-    const html = `<h2>Proforma Invoice ${pf.code}</h2>
-      <p>Dear ${pf.buyer.name},</p>
-      <p>Please find our proforma invoice below (${pf.incoterm}, ${pf.currency}).</p>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Amount</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p><b>Total: ${formatMoney(total, pf.currency)}</b></p>
-      ${pf.validity ? `<p>Valid until: ${new Date(pf.validity).toLocaleDateString()}</p>` : ''}
-      <p>Kind regards,<br/>Ancient Halo Coffee Export</p>`;
+    const totalKg = pf.lines.reduce((a: number, l: any) => a + Number(l.quantityKg ?? 0), 0);
+    const company = await this.pdf.company();
+
+    // Render the PDF before composing the email so the attachment list in the
+    // body reflects what actually goes out.
+    let attachments: { filename: string; content: Buffer }[] = [];
+    try {
+      const rendered = await this.pdf.proformaInvoice(id);
+      attachments = [{ filename: rendered.filename, content: rendered.buffer }];
+    } catch (e) {
+      await this.activity.log(
+        'ProformaInvoice',
+        id,
+        'note',
+        `Could not render the proforma PDF: ${(e as Error).message}. Sending without the attachment.`,
+        actor.id,
+      );
+    }
+
+    const tpl = proformaEmail({
+      company,
+      buyerName: pf.buyer.name,
+      code: pf.code,
+      date: dateLong(pf.date),
+      incoterm: pf.incoterm,
+      currency: pf.currency,
+      validUntil: pf.validity ? dateLong(pf.validity) : null,
+      lines: pf.lines.map((l) => ({
+        description: l.description,
+        lotId: l.lotId,
+        quantity: kg(l.quantityKg),
+        unit: formatMoney(Number(l.pricePerKg), pf.currency),
+        amount: formatMoney(Number(l.amount), pf.currency),
+      })),
+      totals: [
+        { label: 'Total net weight', value: kg(totalKg) },
+        { label: 'TOTAL', value: formatMoney(total, pf.currency) },
+      ],
+      attachments: attachments.map((a) => a.filename),
+    });
+
     const res = await this.email.send({
       to: pf.buyer.email,
-      subject: `Proforma Invoice ${pf.code} — Ancient Halo Coffee`,
-      html,
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text,
+      attachments,
       template: 'proforma',
       entity: 'ProformaInvoice',
       entityId: pf.id,
@@ -232,11 +267,17 @@ export class ProformasController {
     });
     if (res.status !== 'Failed') {
       await this.prisma.proformaInvoice.update({ where: { id }, data: { status: 'Sent' } });
-      await this.activity.log('ProformaInvoice', id, 'email', `Emailed to ${pf.buyer.email} (${res.status})`, actor.id);
+      await this.activity.log(
+        'ProformaInvoice',
+        id,
+        'email',
+        `Emailed to ${pf.buyer.email} with ${attachments.length} attachment(s) (${res.status})`,
+        actor.id,
+      );
     } else {
       await this.activity.log('ProformaInvoice', id, 'email', `Email failed: ${res.error}`, actor.id);
     }
-    return res;
+    return { ...res, attachments: attachments.map((a) => a.filename) };
   }
 
   /** Convert a proforma into a commercial invoice (keeps the proforma reference). */
@@ -363,6 +404,7 @@ export class CommercialController {
     private email: EmailService,
     private activity: ActivityService,
     private compliance: ComplianceService,
+    private pdf: PdfService,
   ) {}
 
   @Get()
@@ -505,18 +547,62 @@ export class CommercialController {
   @Post(':id/send')
   @RequirePermissions('commercial.write')
   async send(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
-    const inv = await this.prisma.commercialInvoice.findUnique({ where: { id }, include: { buyer: true, lines: true } });
+    const inv = await this.prisma.commercialInvoice.findUnique({
+      where: { id },
+      include: { buyer: true, lines: true, proforma: { include: { lines: true } } },
+    });
     if (!inv?.buyer?.email) return { status: 'Failed', error: 'Buyer has no email address' };
-    const total = linesTotal(inv.lines);
-    const html = `<h2>Commercial Invoice ${inv.code}</h2>
-      <p>Dear ${inv.buyer.name},</p>
-      <p>Please find our commercial invoice (HS ${inv.hsCode}, ${inv.incoterm}, ${inv.currency}).</p>
-      <p><b>Total: ${formatMoney(total, inv.currency)}</b></p>
-      <p>Kind regards,<br/>Ancient Halo Coffee Export</p>`;
+
+    const lines = inv.lines.length ? inv.lines : (inv.proforma?.lines ?? []);
+    const total = lines.reduce((a: number, l: any) => a + Number(l.amount ?? 0), 0);
+    const totalKg = lines.reduce((a: number, l: any) => a + Number(l.quantityKg ?? 0), 0);
+    const company = await this.pdf.company();
+
+    // The whole applicable pack goes out with the invoice. A renderer failure
+    // drops that one document rather than blocking the send, and is recorded.
+    let attachments: { filename: string; content: Buffer }[] = [];
+    try {
+      const pack = await this.pdf.packForInvoice(id);
+      attachments = pack.map((d) => ({ filename: d.filename, content: d.buffer }));
+    } catch (e) {
+      await this.activity.log(
+        'CommercialInvoice',
+        id,
+        'note',
+        `Could not render the document pack: ${(e as Error).message}. Sending without attachments.`,
+        actor.id,
+      );
+    }
+
+    const tpl = commercialInvoiceEmail({
+      company,
+      buyerName: inv.buyer.name,
+      code: inv.code,
+      date: dateLong(inv.date),
+      incoterm: inv.incoterm,
+      currency: inv.currency,
+      hsCode: inv.hsCode,
+      destination: inv.destinationCountryName ?? inv.buyer.country,
+      lines: lines.map((l: any) => ({
+        description: l.description,
+        lotId: l.lotId,
+        quantity: kg(l.quantityKg),
+        unit: formatMoney(Number(l.pricePerKg), inv.currency),
+        amount: formatMoney(Number(l.amount), inv.currency),
+      })),
+      totals: [
+        { label: 'Total net weight', value: kg(totalKg) },
+        { label: 'TOTAL', value: formatMoney(total, inv.currency) },
+      ],
+      attachments: attachments.map((a) => a.filename),
+    });
+
     const res = await this.email.send({
       to: inv.buyer.email,
-      subject: `Commercial Invoice ${inv.code} — Ancient Halo Coffee`,
-      html,
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text,
+      attachments,
       template: 'commercial_invoice',
       entity: 'CommercialInvoice',
       entityId: inv.id,
@@ -524,11 +610,17 @@ export class CommercialController {
     });
     if (res.status !== 'Failed') {
       await this.prisma.commercialInvoice.update({ where: { id }, data: { status: 'Sent' } });
-      await this.activity.log('CommercialInvoice', id, 'email', `Emailed to ${inv.buyer.email} (${res.status})`, actor.id);
+      await this.activity.log(
+        'CommercialInvoice',
+        id,
+        'email',
+        `Emailed to ${inv.buyer.email} with ${attachments.length} attachment(s) (${res.status})`,
+        actor.id,
+      );
     } else {
       await this.activity.log('CommercialInvoice', id, 'email', `Email failed: ${res.error}`, actor.id);
     }
-    return res;
+    return { ...res, attachments: attachments.map((a) => a.filename) };
   }
 }
 
@@ -539,6 +631,7 @@ export class EmailsController {
   constructor(
     private prisma: PrismaService,
     private email: EmailService,
+    private pdf: PdfService,
   ) {}
 
   @Get()
@@ -570,19 +663,46 @@ export class EmailsController {
     if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
       return { status: 'Failed', error: 'A valid destination address is required' };
     }
+    const company = await this.pdf.company();
+    const transport = this.email.status();
+    const tpl = testEmail({
+      company,
+      transport: transport.provider,
+      from: transport.from ?? '(unset)',
+    });
+
+    // Render a real invoice PDF as the attachment when one exists, so the test
+    // also proves the attachment pipeline rather than only the transport.
+    let attachments: { filename: string; content: Buffer }[] = [];
+    let attachedSample: string | null = null;
+    const sample = await this.prisma.commercialInvoice.findFirst({ orderBy: { date: 'desc' } });
+    if (sample) {
+      try {
+        const rendered = await this.pdf.commercialInvoice(sample.id);
+        attachments = [{ filename: rendered.filename, content: rendered.buffer }];
+        attachedSample = sample.code;
+      } catch {
+        // A test must not fail because one document cannot render.
+      }
+    }
+
     const result = await this.email.send({
       to,
-      subject: 'MADDA ERP email test',
-      text: 'This is a test message from MADDA ERP. If you received it, outbound email is configured correctly.',
-      html:
-        '<p>This is a test message from <b>MADDA ERP</b>.</p>' +
-        '<p>If you received it, outbound email is configured correctly.</p>',
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text,
+      attachments,
       template: 'test',
       entity: 'System',
       entityId: actor.id,
       userId: actor.id,
     });
-    return { ...result, transport: this.email.status() };
+    return {
+      ...result,
+      transport,
+      attachments: attachments.map((a) => a.filename),
+      sampleInvoice: attachedSample,
+    };
   }
 }
 

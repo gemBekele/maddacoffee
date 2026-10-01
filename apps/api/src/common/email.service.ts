@@ -128,6 +128,8 @@ export class EmailService {
     entity?: string;
     entityId?: string;
     userId?: string;
+    /** Generated in memory; nothing is written to disk. */
+    attachments?: { filename: string; content: Buffer; contentType?: string }[];
   }) {
     const from = process.env.MAIL_FROM || process.env.GMAIL_USER || 'MADDA ERP <no-reply@madda.local>';
     let status = 'Queued';
@@ -142,6 +144,11 @@ export class EmailService {
           subject: params.subject,
           html: params.html,
           text: params.text,
+          attachments: (params.attachments ?? []).map((a) => ({
+            filename: a.filename,
+            content: a.content,
+            contentType: a.contentType ?? 'application/pdf',
+          })),
         });
         status = 'Sent';
         provider = this.providerName;

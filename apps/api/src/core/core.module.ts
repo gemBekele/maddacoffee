@@ -1,6 +1,8 @@
 import { ComplianceController } from './compliance.controller';
 import { TraceabilityController } from './traceability.controller';
 import { ComplianceService } from './compliance.service';
+import { DocumentsController } from '../documents/documents.controller';
+import { PdfService } from '../documents/pdf.service';
 
 import { Module } from '@nestjs/common';
 import { StationsController } from './stations';
@@ -50,6 +52,7 @@ import { ActivityService } from '../common/activity.service';
     ActivityController,
     ComplianceController,
     TraceabilityController,
+    DocumentsController,
   ],
   providers: [
     NumberingService,
@@ -58,6 +61,7 @@ import { ActivityService } from '../common/activity.service';
     ApprovalService,
     ActivityService,
     ComplianceService,
+    PdfService,
   ],
   exports: [
     NumberingService,
@@ -66,6 +70,7 @@ import { ActivityService } from '../common/activity.service';
     ApprovalService,
     ActivityService,
     ComplianceService,
+    PdfService,
   ],
 })
 export class CoreModule {}

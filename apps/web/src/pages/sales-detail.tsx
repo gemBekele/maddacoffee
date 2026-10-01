@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   MapPin,
   Download,
+  Printer,
 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import {
@@ -35,6 +36,7 @@ import {
 import { DataTable } from '@/components/DataTable';
 import { InfoRow, CustomerCard, SentEmails, ActivityFeed, CustomerHistory } from '@/components/detail';
 import { api } from '@/lib/api';
+import { downloadPdf, openPdf, invoiceDocPath, proformaDocPath } from '@/lib/download';
 import { formatMoney, formatKg } from '@madda/shared';
 
 function useDetail(key: string, url: string) {
@@ -198,15 +200,38 @@ function DocumentPackPanel({
                   </a>
                 )}
               </div>
-              <select
-                className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs"
-                value={d.status}
-                onChange={(e) => setDoc(d.id, e.target.value)}
-              >
-                {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
+              <div className="flex shrink-0 items-center gap-1">
+                {/* Every row has a PDF, including documents a third party issues:
+                    those render as a control sheet rather than a fake certificate. */}
+                <button
+                  title="Open PDF (print)"
+                  onClick={() => openPdf(invoiceDocPath(invoice.id, d.docType, true))}
+                  className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Printer size={14} />
+                </button>
+                <button
+                  title="Download PDF"
+                  onClick={() =>
+                    downloadPdf(
+                      invoiceDocPath(invoice.id, d.docType),
+                      `${invoice.code}-${d.docType.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`,
+                    )
+                  }
+                  className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Download size={14} />
+                </button>
+                <select
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                  value={d.status}
+                  onChange={(e) => setDoc(d.id, e.target.value)}
+                >
+                  {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         ))}
@@ -466,6 +491,8 @@ export function ProformaDetailPage() {
               {['Responded', 'Sent', 'Issued'].includes(pf.status) && <Button variant="ghost" onClick={() => act(() => api.patch(`/proformas/${id}/status`, { status: 'Accepted' }))}><CheckCircle2 size={15} /> Mark Accepted</Button>}
               {['Accepted', 'Responded', 'Sent', 'Issued'].includes(pf.status) && <Button onClick={() => act(() => api.post(`/proformas/${id}/convert`))}><Repeat size={15} /> Convert to Commercial Invoice</Button>}
               {pf.status === 'Converted' && pf.commercial && <Link to={`/commercial/${pf.commercial.id}`}><Button><Repeat size={15} /> Open Commercial Invoice</Button></Link>}
+              <Button variant="ghost" onClick={() => openPdf(proformaDocPath(String(id), true))}><Printer size={15} /> Print</Button>
+              <Button variant="ghost" onClick={() => downloadPdf(proformaDocPath(String(id)), `${pf.code}-proforma-invoice.pdf`)}><Download size={15} /> PDF</Button>
               {!['Converted', 'Cancelled'].includes(pf.status) && <Button variant="ghost" onClick={() => act(() => api.patch(`/proformas/${id}/status`, { status: 'Cancelled' }))}>{t('common.cancel')}</Button>}
             </div>
           </Card>
@@ -526,6 +553,8 @@ export function CommercialDetailPage() {
               {inv.status === 'Draft' && <Button onClick={() => act(() => api.patch(`/commercial-invoices/${id}/status`, { status: 'Issued' }))}><FileCheck size={15} /> Mark Issued</Button>}
               {['Draft', 'Issued'].includes(inv.status) && <Button variant="ghost" onClick={() => act(() => api.post(`/commercial-invoices/${id}/send`))}><Send size={15} /> Email to Buyer</Button>}
               {inv.status !== 'Paid' && <Button variant="ghost" onClick={() => act(() => api.patch(`/commercial-invoices/${id}/status`, { status: 'Paid' }))}><CheckCircle2 size={15} /> Mark Paid</Button>}
+              <Button variant="ghost" onClick={() => openPdf(invoiceDocPath(String(id), 'Commercial Invoice', true))}><Printer size={15} /> Print Invoice</Button>
+              <Button variant="ghost" onClick={() => downloadPdf(invoiceDocPath(String(id), 'Commercial Invoice'), `${inv.code}-commercial-invoice.pdf`)}><Download size={15} /> PDF</Button>
             </div>
           </Card>
           <Card className="p-5">
