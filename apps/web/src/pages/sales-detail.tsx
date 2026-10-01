@@ -20,6 +20,7 @@ import {
   MapPin,
   Download,
   Printer,
+  ChevronDown,
 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import {
@@ -31,7 +32,6 @@ import {
   Select,
   Modal,
   VerificationBadge,
-  IssuerBadge,
 } from '@/components/ui';
 import { DataTable } from '@/components/DataTable';
 import { InfoRow, CustomerCard, SentEmails, ActivityFeed, CustomerHistory } from '@/components/detail';
@@ -50,6 +50,19 @@ function useDetail(key: string, url: string) {
  * the buyer key on, and it is produced by the proforma conversion that starts
  * the documentation work. A shipment shows the same pack read-only.
  */
+/**
+ * The export document pack.
+ *
+ * Anchored on the commercial invoice: the invoice is what the bank, customs and
+ * the buyer key on, and it is produced by the proforma conversion that starts
+ * the documentation work. A shipment shows the same pack read-only.
+ *
+ * Kept deliberately quiet. The earlier version put a badge for every attribute
+ * on every row — verification, issuer, submission method, authority, legal
+ * basis — which made a twelve-line checklist hard to scan. The row now states
+ * what the document is and whether it is done; provenance is one click away,
+ * and a verification badge appears only when something is unconfirmed.
+ */
 function DocumentPackPanel({
   invoice,
   invalidate,
@@ -61,6 +74,7 @@ function DocumentPackPanel({
 }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const { data: profiles } = useQuery({
     queryKey: ['compliance', 'profiles'],
@@ -112,6 +126,138 @@ function DocumentPackPanel({
   const applicable = all.filter((d) => d.status !== 'NotApplicable');
   const retracted = all.filter((d) => d.status === 'NotApplicable');
   const summary = invoice.summary;
+  const pct = summary?.total ? Math.round((summary.ready / summary.total) * 100) : 0;
+
+  // Grouping by who has to act is the one piece of structure worth keeping: it
+  // separates the documents we produce from the ones we are waiting on someone
+  // else to issue.
+  const wePrepare = applicable.filter((d) => d.issuerType === 'ERP_GENERATED');
+  const othersIssue = applicable.filter((d) => d.issuerType !== 'ERP_GENERATED');
+
+  const row = (d: any) => {
+    const done = d.status === 'Ready' || d.status === 'Submitted';
+    const isOpen = expanded === d.id;
+    const needsCheck = d.verificationStatus && d.verificationStatus !== 'VERIFIED';
+    const issuer =
+      d.issuerType === 'ERP_GENERATED'
+        ? 'We generate'
+        : d.issuerType === 'AUTHORITY_ISSUED'
+          ? 'Authority issues'
+          : 'Third party';
+    const due = d.validUntil ? new Date(d.validUntil).toLocaleDateString([], { day: 'numeric', month: 'short' }) : null;
+
+    return (
+      <div key={d.id} className="border-b border-slate-100 last:border-0">
+        <div className="flex items-center gap-2.5 py-2">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              done ? 'bg-emerald-500' : d.status === 'InProgress' ? 'bg-amber-400' : 'bg-slate-300'
+            }`}
+            title={d.status}
+          />
+
+          <button onClick={() => setExpanded(isOpen ? null : d.id)} className="min-w-0 flex-1 text-left">
+            <span className="flex items-center gap-1.5">
+              <span className={`truncate text-sm ${done ? 'text-slate-500' : 'text-slate-700'}`}>{d.docType}</span>
+              {!d.mandatory && <span className="shrink-0 text-[10px] text-slate-400">if applicable</span>}
+              {needsCheck && <VerificationBadge status={d.verificationStatus} />}
+            </span>
+            <span className="block truncate text-[11px] text-slate-400">
+              {issuer}
+              {d.authority && d.issuerType !== 'ERP_GENERATED' ? ` · ${d.authority}` : ''}
+              {due ? ` · target ${due}` : ''}
+            </span>
+          </button>
+
+          <select
+            className={`h-7 shrink-0 rounded-md border-0 bg-slate-50 px-2 text-xs ${
+              done ? 'text-emerald-700' : 'text-slate-600'
+            }`}
+            value={d.status}
+            onChange={(e) => setDoc(d.id, e.target.value)}
+          >
+            {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+
+          <button
+            title="Download PDF"
+            onClick={() =>
+              downloadPdf(
+                invoiceDocPath(invoice.id, d.docType),
+                `${invoice.code}-${d.docType.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`,
+              )
+            }
+            className="shrink-0 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <Download size={15} />
+          </button>
+          <button
+            onClick={() => setExpanded(isOpen ? null : d.id)}
+            className="shrink-0 rounded p-1.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <ChevronDown size={15} className={isOpen ? 'rotate-180 transition' : 'transition'} />
+          </button>
+        </div>
+
+        {isOpen && (
+          <div className="mb-2 ml-4 space-y-2 rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            {d.notes && !d.notes.startsWith('Not triggered') && <p>{d.notes}</p>}
+            <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+              <div>
+                <dt className="text-slate-400">Issued by</dt>
+                <dd>{d.authority ?? '—'}</dd>
+              </div>
+              {d.legalBasis && (
+                <div>
+                  <dt className="text-slate-400">Legal basis</dt>
+                  <dd>{d.legalBasis}</dd>
+                </div>
+              )}
+              {d.reference && (
+                <div>
+                  <dt className="text-slate-400">Reference</dt>
+                  <dd className="font-mono">{d.reference}</dd>
+                </div>
+              )}
+              {d.companyDocSnapshot && (
+                <div>
+                  <dt className="text-slate-400">Company document used</dt>
+                  <dd className="text-emerald-700">{d.companyDocSnapshot.number}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-slate-400">Verification</dt>
+                <dd className="flex items-center gap-1.5">
+                  <VerificationBadge status={d.verificationStatus} />
+                  {d.verificationSource && (
+                    <a href={d.verificationSource} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
+                      source
+                    </a>
+                  )}
+                </dd>
+              </div>
+            </dl>
+            {d.notes?.startsWith('Not triggered') && <p className="text-amber-700">{d.notes}</p>}
+            <div className="flex gap-3 pt-0.5">
+              <button
+                onClick={() => openPdf(invoiceDocPath(invoice.id, d.docType, true))}
+                className="inline-flex items-center gap-1 text-brand-700 hover:underline"
+              >
+                <Printer size={12} /> Print
+              </button>
+              {d.officialUrl && (
+                <a href={d.officialUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-700 hover:underline">
+                  <ExternalLink size={12} /> Authority source
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card className="p-5">
@@ -119,11 +265,9 @@ function DocumentPackPanel({
         <div>
           <div className="text-sm font-semibold text-slate-800">Export documents</div>
           <div className="text-xs text-slate-400">
-            {invoice.destinationCountryName
-              ? `For ${invoice.destinationCountryName}`
-              : 'Destination not set — showing origin-side requirements only'}
+            {invoice.destinationCountryName ?? 'No destination set'}
             {summary ? ` · ${summary.ready} of ${summary.total} ready` : ''}
-            {summary?.unverified ? ` · ${summary.unverified} need checking` : ''}
+            {summary?.unverified ? ` · ${summary.unverified} to confirm` : ''}
           </div>
         </div>
         {canEdit && (
@@ -142,7 +286,7 @@ function DocumentPackPanel({
               ))}
             </Select>
             <Button variant="ghost" onClick={reapply} className="h-8 text-xs" disabled={busy}>
-              <RefreshCw size={13} className={busy ? 'animate-spin' : ''} /> Re-check
+              <RefreshCw size={13} className={busy ? 'animate-spin' : ''} />
             </Button>
           </div>
         )}
@@ -150,133 +294,67 @@ function DocumentPackPanel({
 
       {summary && summary.total > 0 && (
         <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-brand-600 transition-all"
-            style={{ width: `${Math.round((summary.ready / summary.total) * 100)}%` }}
-          />
+          <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
         </div>
       )}
 
-      <div className="space-y-1.5">
-        {applicable.map((d: any) => (
-          <div
-            key={d.id}
-            className={`rounded-lg border px-3 py-2 ${
-              d.mandatory ? 'border-slate-200' : 'border-dashed border-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-medium text-slate-700">{d.docType}</span>
-                  {d.mandatory ? (
-                    <span className="text-[10px] font-semibold uppercase text-brand-700">required</span>
-                  ) : (
-                    <span className="text-[10px] font-semibold uppercase text-slate-400">conditional</span>
-                  )}
-                  <VerificationBadge status={d.verificationStatus} />
-                  <IssuerBadge type={d.issuerType} />
-                </div>
-                {d.authority && (
-                  <div className="mt-0.5 text-[11px] text-slate-400">
-                    {d.authority}
-                    {d.validUntil ? ` · target by ${new Date(d.validUntil).toLocaleDateString()}` : ''}
-                    {d.reference ? ` · ref ${d.reference}` : ''}
-                  </div>
-                )}
-                {d.companyDocSnapshot && (
-                  <div className="mt-0.5 text-[11px] text-emerald-700">
-                    using company document {d.companyDocSnapshot.number}
-                  </div>
-                )}
-                {d.officialUrl && (
-                  <a
-                    href={d.officialUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline"
-                  >
-                    <ExternalLink size={10} /> authority source
-                  </a>
-                )}
+      {applicable.length === 0 ? (
+        <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+          No documents resolve for this destination yet. Set a destination to build the pack.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {wePrepare.length > 0 && (
+            <div>
+              <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                We prepare
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {/* Every row has a PDF, including documents a third party issues:
-                    those render as a control sheet rather than a fake certificate. */}
-                <button
-                  title="Open PDF (print)"
-                  onClick={() => openPdf(invoiceDocPath(invoice.id, d.docType, true))}
-                  className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <Printer size={14} />
-                </button>
-                <button
-                  title="Download PDF"
-                  onClick={() =>
-                    downloadPdf(
-                      invoiceDocPath(invoice.id, d.docType),
-                      `${invoice.code}-${d.docType.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`,
-                    )
-                  }
-                  className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <Download size={14} />
-                </button>
-                <select
-                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
-                  value={d.status}
-                  onChange={(e) => setDoc(d.id, e.target.value)}
-                >
-                  {['Pending', 'InProgress', 'Ready', 'Submitted', 'Rejected', 'NotApplicable'].map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
+              {wePrepare.map(row)}
+            </div>
+          )}
+          {othersIssue.length > 0 && (
+            <div>
+              <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Issued by an authority or third party
               </div>
+              {othersIssue.map(row)}
             </div>
-          </div>
-        ))}
-        {applicable.length === 0 && (
-          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-            No documents resolve for this destination yet. Set a destination to build the pack.
-          </div>
-        )}
-        {retracted.length > 0 && (
-          <details className="mt-2 text-xs">
-            <summary className="cursor-pointer text-slate-400">
-              {retracted.length} document(s) no longer required for this destination
-            </summary>
-            <div className="mt-1.5 space-y-1 pl-2">
-              {retracted.map((d: any) => (
-                <div key={d.id} className="text-slate-400 line-through">
-                  {d.docType}
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Company documents are held once and referenced, never copied per invoice. */}
+      {retracted.length > 0 && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer text-slate-400">
+            {retracted.length} not required for this destination
+          </summary>
+          <div className="mt-1.5 space-y-0.5 pl-2">
+            {retracted.map((d: any) => (
+              <div key={d.id} className="text-slate-400 line-through">
+                {d.docType}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {invoice.companyDocuments?.length > 0 && (
         <div className="mt-4 border-t border-slate-100 pt-3">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-            <Building2 size={13} className="text-slate-400" />
-            Company documents this invoice relies on
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <Building2 size={12} /> Company documents
           </div>
           <div className="space-y-1">
             {invoice.companyDocuments.map((c: any) => (
               <div key={c.requirementId} className="flex items-center gap-2 text-xs">
-                <span className="text-slate-600">{c.documentType}</span>
-                <VerificationBadge status={c.verificationStatus} />
+                <span className={c.held ? 'text-slate-500' : 'text-slate-700'}>{c.documentType}</span>
                 {c.held ? (
-                  <span className="text-emerald-700">
+                  <span className="text-slate-400">
                     {c.held.number}
                     {c.held.expiresAt ? ` · exp ${new Date(c.held.expiresAt).toLocaleDateString()}` : ''}
                   </span>
                 ) : (
                   <span className="text-amber-700">not on file</span>
                 )}
-                <span className="ml-auto text-slate-400">{c.authority}</span>
               </div>
             ))}
           </div>

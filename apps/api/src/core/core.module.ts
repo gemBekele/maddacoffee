@@ -3,6 +3,8 @@ import { TraceabilityController } from './traceability.controller';
 import { ComplianceService } from './compliance.service';
 import { DocumentsController } from '../documents/documents.controller';
 import { PdfService } from '../documents/pdf.service';
+import { MarketController } from './market.controller';
+import { MarketService } from './market.service';
 
 import { Module } from '@nestjs/common';
 import { StationsController } from './stations';
@@ -53,6 +55,7 @@ import { ActivityService } from '../common/activity.service';
     ComplianceController,
     TraceabilityController,
     DocumentsController,
+    MarketController,
   ],
   providers: [
     NumberingService,
@@ -62,6 +65,7 @@ import { ActivityService } from '../common/activity.service';
     ActivityService,
     ComplianceService,
     PdfService,
+    MarketService,
   ],
   exports: [
     NumberingService,

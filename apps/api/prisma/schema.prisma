@@ -978,3 +978,47 @@ model Approval {
   @@index([status])
   @@map("approvals")
 }
+
+// ───────────────────────────── Market data ─────────────────────────────
+// Cached benchmark quotes so the dashboard does not proxy an upstream API on
+// every page view, and so a chart still renders when the upstream is down.
+
+model CoffeeQuote {
+  id         String   @id @default(cuid())
+  symbol     String // upstream symbol, e.g. KC=F
+  kind       String   @default("FUTURES") // FUTURES | INDICATOR
+  source     String // yahoo | fred
+  interval   String // 5m | 15m | 1d | 1mo
+  priceDate  DateTime // the point's own timestamp
+  open       Decimal? @db.Decimal(18, 6)
+  high       Decimal? @db.Decimal(18, 6)
+  low        Decimal? @db.Decimal(18, 6)
+  close      Decimal  @db.Decimal(18, 6)
+  volume     Decimal? @db.Decimal(20, 2)
+  // Always normalised to USD per kilogram before storage. Upstream quotes
+  // arabica in US cents per pound, and storing the raw unit would make the
+  // benchmark and our own realised price incomparable.
+  unit       String   @default("USD/kg")
+  currency   String   @default("USD")
+  fetchedAt  DateTime @default(now())
+
+  @@unique([symbol, interval, priceDate])
+  @@index([symbol, interval, priceDate])
+  @@map("coffee_quotes")
+}
+
+// A record of what the market feed returned, so a failure is visible rather
+// than presenting stale data as current.
+model MarketFetchLog {
+  id        String   @id @default(cuid())
+  source    String
+  symbol    String
+  interval  String
+  ok        Boolean
+  points    Int      @default(0)
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("market_fetch_logs")
+}

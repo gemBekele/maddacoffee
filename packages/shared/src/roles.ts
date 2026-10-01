@@ -70,6 +70,7 @@ export const PERMISSIONS = [
   'compliance.write',
   'traceability.read',
   'traceability.write',
+  'market.read',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -89,6 +90,7 @@ const SALES: Permission[] = [
   'report.read',
   'compliance.read',
   'traceability.read',
+  'market.read',
 ];
 const PROCUREMENT: Permission[] = [
   'dashboard.read',
