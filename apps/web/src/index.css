@@ -45,3 +45,42 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* ── Print ──────────────────────────────────────────────────────────────
+   Printing a dashboard is a real request: people take these to meetings and
+   put them in reports. Chrome is hidden, backgrounds are kept (browsers drop
+   them by default), and cards avoid being split across pages. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #ffffff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-full {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .card {
+    box-shadow: none !important;
+    border-color: #d1d5db !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Keep the market card's colour rather than printing it as white. */
+  .print-keep-colour {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-break-before {
+    break-before: page;
+    page-break-before: always;
+  }
+}
