@@ -2,8 +2,14 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Environment lives at the repo root, not in apps/web. Without this Vite would
+  // only look next to this config and the root .env would be ignored.
+  envDir: path.resolve(__dirname, '../..'),
   plugins: [
     react(),
     VitePWA({
