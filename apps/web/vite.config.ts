@@ -16,9 +16,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'MADDA ERP',
-        short_name: 'MADDA',
-        description: 'Coffee Processing & Export Management',
+        name: 'Ancient Halo Coffee',
+        short_name: 'Ancient Halo',
+        description: 'Ethiopian Coffee Processing & Export Management',
         theme_color: '#2a3f26',
         background_color: '#f8fafc',
         display: 'standalone',

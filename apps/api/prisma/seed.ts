@@ -269,7 +269,7 @@ async function seedCompliance() {
 }
 
 async function main() {
-  console.log('Seeding MADDA ERP...');
+  console.log('Seeding Ancient Halo Coffee...');
   await seedRoles();
   const lookups = await seedLookups();
   await seedCurrencies();

@@ -136,7 +136,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-4">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-copper-500 text-sm font-bold text-white">M</div>
+          {/* The blossom mark alone when collapsed, with the wordmark beside it
+              when there is room. */}
+          <img src="/favicon.svg" alt="" className="h-9 w-9 shrink-0 rounded-lg" />
           {!collapsed && (
             <div className="leading-tight">
               <div className="text-sm font-semibold">{t('app.name')}</div>
@@ -161,7 +163,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="absolute inset-y-0 left-0 w-72 overflow-y-auto bg-white p-4">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-copper-500 text-sm font-bold text-white">M</div>
+                <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
                 <span className="text-sm font-semibold">{t('app.name')}</span>
               </div>
               <button onClick={() => setDrawer(false)} className="p-1 text-slate-400"><X size={18} /></button>

@@ -226,7 +226,7 @@ export function layout(opts: LayoutOptions): string {
                   ${company.address ? `<p style="margin:2px 0 0;">${escapeHtml(company.address)}</p>` : ''}
                   ${company.email ? `<p style="margin:2px 0 0;">${escapeHtml(company.email)}</p>` : ''}
                   ${company.phone ? `<p style="margin:2px 0 0;">${escapeHtml(company.phone)}</p>` : ''}
-                  <p style="margin:10px 0 0;">Sent by MADDA ERP on behalf of ${escapeHtml(company.name)}.</p>
+                  <p style="margin:10px 0 0;">Sent by Ancient Halo Coffee on behalf of ${escapeHtml(company.name)}.</p>
                 </td>
               </tr>
             </table>
@@ -408,7 +408,7 @@ export function approvalRequestEmail(p: {
       { label: 'Requested by', value: p.requestedBy ?? '' },
     ])}
     ${p.note ? callout(escapeHtml(p.note), 'muted') : ''}
-    <p style="margin:16px 0 0;">Open the Approvals page in MADDA ERP to approve or reject it.</p>
+    <p style="margin:16px 0 0;">Open the Approvals page in Ancient Halo Coffee to approve or reject it.</p>
     <p style="margin:16px 0 0;">Kind regards,<br><b>${escapeHtml(p.company.name)}</b></p>`;
 
   return {
@@ -430,7 +430,7 @@ export function testEmail(p: { company: CompanyInfo; transport: string; from: st
   text: string;
 } {
   const body = `
-    <p style="margin:0 0 16px;">This is a test message from MADDA ERP.</p>
+    <p style="margin:0 0 16px;">This is a test message from Ancient Halo Coffee.</p>
     <p style="margin:0 0 8px;">If you are reading it, outbound email is working and the layout is rendering correctly.</p>
     ${infoTable([
       { label: 'Transport', value: p.transport },
@@ -441,7 +441,7 @@ export function testEmail(p: { company: CompanyInfo; transport: string; from: st
     <p style="margin:16px 0 0;">Kind regards,<br><b>${escapeHtml(p.company.name)}</b></p>`;
 
   return {
-    subject: 'MADDA ERP email test',
+    subject: 'Ancient Halo Coffee email test',
     html: layout({
       preheader: 'Test message confirming outbound email is configured.',
       heading: 'Email test',
@@ -449,6 +449,6 @@ export function testEmail(p: { company: CompanyInfo; transport: string; from: st
       body,
       company: p.company,
     }),
-    text: `MADDA ERP email test.\nTransport: ${p.transport}\nFrom: ${p.from}`,
+    text: `Ancient Halo Coffee email test.\nTransport: ${p.transport}\nFrom: ${p.from}`,
   };
 }

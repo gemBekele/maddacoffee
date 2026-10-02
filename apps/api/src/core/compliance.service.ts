@@ -249,7 +249,8 @@ export class ComplianceService {
   async applyToInvoice(invoiceId: string, opts: { regenerate?: boolean } = {}) {
     const invoice = await this.prisma.commercialInvoice.findUnique({
       where: { id: invoiceId },
-      include: { contract: { include: { shipment: true } } },
+      // The invoice now owns the shipment link directly.
+      include: { shipments: { take: 1, select: { id: true, mode: true } } },
     });
     if (!invoice) throw new NotFoundException('Commercial invoice not found');
 
@@ -266,9 +267,9 @@ export class ComplianceService {
 
     // A shipment, when one exists, only contributes its transport mode to the
     // trigger context. Every other input is a commercial term of the invoice.
-    const linkedShipmentId = invoice.contract?.shipment?.id ?? null;
+    const linkedShipmentId = invoice.shipments[0]?.id ?? null;
     const { ctx, valueUsd } = await this.buildContext(invoiceId);
-    if (invoice.contract?.shipment?.mode) ctx.mode = invoice.contract.shipment.mode;
+    if (invoice.shipments[0]?.mode) ctx.mode = invoice.shipments[0].mode;
 
     const requirements = await this.allRequirements();
     const asOf = invoice.date ?? new Date();

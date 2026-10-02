@@ -362,7 +362,11 @@ export class ContractsController {
   @Get()
   @RequirePermissions('contract.read')
   list() {
-    return this.prisma.salesContract.findMany({ include: { buyer: true, proforma: true, shipment: true }, orderBy: { date: 'desc' }, take: 500 });
+    return this.prisma.salesContract.findMany({
+      include: { buyer: true, proforma: true, commercial: { include: { shipments: true } } },
+      orderBy: { date: 'desc' },
+      take: 500,
+    });
   }
 
   @Post()
@@ -429,7 +433,8 @@ export class CommercialController {
         buyer: true,
         lines: true,
         proforma: true,
-        contract: { include: { shipment: true } },
+        contract: { select: { id: true, code: true, incoterm: true } },
+        shipments: { orderBy: { createdAt: 'desc' } },
         documents: {
           include: { companyDoc: true, requirement: true },
           orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
@@ -734,20 +739,20 @@ export class ShipmentsController {
   @Get()
   @RequirePermissions('shipment.read')
   async list() {
-    const rows = await this.prisma.shipment.findMany({
+    return this.prisma.shipment.findMany({
       include: {
-        contract: { include: { buyer: true, commercial: { include: { documents: true } } } },
+        // The pack belongs to the invoice, so it is read through from there
+        // rather than stored a second time on the shipment.
+        commercialInvoice: {
+          include: {
+            buyer: true,
+            documents: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 500,
     });
-    // The document pack belongs to the invoice, so surface it under the shipment
-    // as a read-through rather than storing a second copy.
-    return rows.map((s) => ({
-      ...s,
-      commercialInvoice: s.contract?.commercial ?? null,
-      documents: s.contract?.commercial?.documents ?? [],
-    }));
   }
 
   @Get(':id')
@@ -756,20 +761,15 @@ export class ShipmentsController {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
       include: {
-        contract: {
+        commercialInvoice: {
           include: {
+            lines: true,
             buyer: true,
-            commercial: {
-              include: {
-                lines: true,
-                buyer: true,
-                documents: {
-                  include: { companyDoc: true, requirement: true },
-                  orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
-                },
-              },
+            documents: {
+              include: { companyDoc: true, requirement: true },
+              orderBy: [{ mandatory: 'desc' }, { docType: 'asc' }],
             },
-            proforma: { include: { lines: true } },
+            contract: { select: { id: true, code: true } },
           },
         },
         events: { orderBy: { createdAt: 'desc' } },
@@ -778,7 +778,7 @@ export class ShipmentsController {
     });
     if (!shipment) return { error: 'Not found' };
 
-    const invoice = shipment.contract?.commercial ?? null;
+    const invoice = shipment.commercialInvoice ?? null;
     const companyRequired = await this.prisma.complianceRequirement.findMany({
       where: { scope: { in: ['COMPANY', 'SHARED'] }, mandatory: true, effectiveUntil: null },
       orderBy: { name: 'asc' },
@@ -850,25 +850,28 @@ export class ShipmentsController {
   async create(@Body(new ZodValidationPipe(shipmentSchema)) body: ShipmentInput, @CurrentUser() actor: AuthUser) {
     const code = await this.numbering.next('shipment', body.date ?? new Date());
     const trackingNo = `PAQ-${code.replace(/\D/g, '').slice(-6) || String(Date.now()).slice(-6)}`;
-    const contract = body.contractId
-      ? await this.prisma.salesContract.findUnique({
-          where: { id: body.contractId },
-          include: { buyer: true, commercial: true },
+    // The commercial invoice supplies the buyer details, the destination and
+    // the document pack, so it is loaded to derive sensible shipment defaults.
+    const invoice = body.commercialInvoiceId
+      ? await this.prisma.commercialInvoice.findUnique({
+          where: { id: body.commercialInvoiceId },
+          include: { buyer: true },
         })
       : null;
+
     const s = await this.prisma.shipment.create({
       data: {
         code,
         trackingNo,
-        contractId: body.contractId ?? null,
+        commercialInvoiceId: body.commercialInvoiceId ?? null,
         date: body.date ?? null,
         mode: body.mode,
         port: body.port ?? null,
         billOfLading: body.billOfLading ?? null,
         containerNo: body.containerNo ?? null,
-        receiver: body.receiver ?? contract?.buyer?.name ?? null,
-        address: body.address ?? contract?.buyer?.country ?? null,
-        contact: body.contact ?? contract?.buyer?.phone ?? contract?.buyer?.email ?? null,
+        receiver: body.receiver ?? invoice?.buyer?.name ?? null,
+        address: body.address ?? invoice?.buyer?.country ?? null,
+        contact: body.contact ?? invoice?.buyer?.phone ?? invoice?.buyer?.email ?? null,
         itemDescription: body.itemDescription ?? 'Ethiopian green coffee (export)',
         note: body.note ?? null,
         notes: body.notes ?? null,
@@ -884,9 +887,9 @@ export class ShipmentsController {
     await this.audit.log({ userId: actor.id, action: 'CREATE', entity: 'Shipment', entityId: s.id });
     await this.activity.log('Shipment', s.id, 'created', `Shipment ${s.code} created (${trackingNo})`, actor.id);
 
-    if (contract?.commercial?.id) {
+    if (invoice?.id) {
       try {
-        await this.compliance.applyToInvoice(contract.commercial.id);
+        await this.compliance.applyToInvoice(invoice.id);
       } catch (e) {
         this.activity.log(
           'Shipment',

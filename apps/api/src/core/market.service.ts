@@ -32,7 +32,7 @@ const YAHOO = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const FRED = 'https://fred.stlouisfed.org/graph/fredgraph.csv';
 
 /** Yahoo rejects requests without a browser-like agent. */
-const UA = 'Mozilla/5.0 (compatible; MADDA-ERP/1.0)';
+const UA = 'Mozilla/5.0 (compatible; AncientHalo-Coffee/1.0)';
 
 export type Range = '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y' | '5y';
 

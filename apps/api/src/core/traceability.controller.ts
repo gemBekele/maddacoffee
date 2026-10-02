@@ -138,12 +138,11 @@ export class TraceabilityController {
   async shipmentPlots(@Param('id') shipmentId: string) {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
-      include: { contract: { include: { commercial: { include: { lines: true } }, proforma: { include: { lines: true } } } } },
+      include: { commercialInvoice: { include: { lines: true } } },
     });
     if (!shipment) return { error: 'Not found' };
 
-    const contract = shipment.contract;
-    const lines = contract?.commercial?.lines ?? contract?.proforma?.lines ?? [];
+    const lines = shipment.commercialInvoice?.lines ?? [];
     const lotIds = [...new Set(lines.map((l: any) => l.lotId).filter(Boolean))] as string[];
 
     if (!lotIds.length) {
@@ -189,12 +188,12 @@ export class TraceabilityController {
   async lotShipments(@Param('lotId') lotId: string) {
     const commercialLines = await this.prisma.commercialInvoiceLine.findMany({
       where: { lotId },
-      include: { invoice: { include: { contract: { include: { shipment: true } } } } },
+      include: { invoice: { include: { shipments: { take: 1 } } } },
     });
     // The relation field on ProformaInvoiceLine is `proforma`, not `invoice`.
     const proformaLines = await this.prisma.proformaInvoiceLine.findMany({
       where: { lotId },
-      include: { proforma: { include: { contract: { include: { shipment: true } } } } },
+      include: { proforma: { include: { contract: { include: { commercial: { include: { shipments: { take: 1 } } } } } } } },
     });
 
     const rows = [
@@ -205,7 +204,7 @@ export class TraceabilityController {
         status: l.invoice.status,
         quantityKg: l.quantityKg,
         amount: l.amount,
-        shipment: l.invoice.contract?.shipment ?? null,
+        shipment: l.invoice.shipments?.[0] ?? null,
       })),
       ...proformaLines.map((l) => ({
         kind: 'ProformaInvoice',
@@ -214,7 +213,7 @@ export class TraceabilityController {
         status: l.proforma.status,
         quantityKg: l.quantityKg,
         amount: l.amount,
-        shipment: l.proforma.contract?.shipment ?? null,
+        shipment: l.proforma.contract?.commercial?.shipments?.[0] ?? null,
       })),
     ];
     return { lotId, invoices: rows };
@@ -331,7 +330,7 @@ export class TraceabilityController {
       where: { id: shipmentId },
       include: {
         eudr: { include: { plotLinks: { include: { plot: { include: { producer: true } } } } } },
-        contract: { include: { commercial: { select: { destinationCountryCode: true, destinationCountryName: true } } } },
+        commercialInvoice: { select: { destinationCountryCode: true, destinationCountryName: true } },
       },
     });
     if (!shipment) return { error: 'Not found' };
@@ -343,7 +342,7 @@ export class TraceabilityController {
       shipment: {
         id: shipment.id,
         code: shipment.code,
-        destination: shipment.contract?.commercial?.destinationCountryName ?? null,
+        destination: shipment.commercialInvoice?.destinationCountryName ?? null,
       },
       statement: shipment.eudr,
       plotCount: plots.plots.length,
@@ -352,7 +351,7 @@ export class TraceabilityController {
       producers: plots.producers,
       // We do not file. The EU importer does; we supply this data.
       responsibility:
-        'The Due Diligence Statement is submitted by the EU importer or operator in the EUDR Information System (TRACES). MADDA supplies plot geolocation and legality evidence and records the reference returned.',
+        'The Due Diligence Statement is submitted by the EU importer or operator in the EUDR Information System (TRACES). Ancient Halo Coffee supplies plot geolocation and legality evidence and records the reference returned.',
       officialUrl: 'https://green-forum.ec.europa.eu/nature-and-biodiversity/deforestation-regulation-implementation_en',
       applicationDate: '2026-12-30',
     };
@@ -370,7 +369,7 @@ export class TraceabilityController {
   async geojson(@Param('shipmentId') shipmentId: string) {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
-      include: { contract: { include: { commercial: { select: { destinationCountryCode: true } } } } },
+      include: { commercialInvoice: { select: { destinationCountryCode: true } } },
     });
     if (!shipment) return { error: 'Not found' };
 
@@ -414,7 +413,7 @@ export class TraceabilityController {
       features,
       meta: {
         shipmentCode: shipment.code,
-        destinationCountry: shipment.contract?.commercial?.destinationCountryCode ?? null,
+        destinationCountry: shipment.commercialInvoice?.destinationCountryCode ?? null,
         countryOfProduction: 'Ethiopia',
         commodity: 'Coffee',
         generatedAt: new Date().toISOString(),
@@ -480,11 +479,10 @@ export class TraceabilityController {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
       include: {
-        contract: { include: { commercial: { include: { lines: true } }, proforma: { include: { lines: true } } } },
+        commercialInvoice: { include: { lines: true } },
       },
     });
-    const contract = shipment?.contract;
-    const lines = contract?.commercial?.lines ?? contract?.proforma?.lines ?? [];
+    const lines = shipment?.commercialInvoice?.lines ?? [];
     const lotIds = [...new Set(lines.map((l: any) => l.lotId).filter(Boolean))] as string[];
     if (!lotIds.length) return [];
 

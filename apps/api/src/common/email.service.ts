@@ -131,7 +131,7 @@ export class EmailService {
     /** Generated in memory; nothing is written to disk. */
     attachments?: { filename: string; content: Buffer; contentType?: string }[];
   }) {
-    const from = process.env.MAIL_FROM || process.env.GMAIL_USER || 'MADDA ERP <no-reply@madda.local>';
+    const from = process.env.MAIL_FROM || process.env.GMAIL_USER || 'Ancient Halo Coffee <no-reply@ancienthalo.coffee>';
     let status = 'Queued';
     let error: string | undefined;
     let provider: string | undefined;

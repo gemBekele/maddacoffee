@@ -82,7 +82,7 @@ export class DocumentBuilder {
       info: {
         Title: `${meta.title}${meta.reference ? ` ${meta.reference}` : ''}`,
         Author: meta.company.name,
-        Creator: 'MADDA ERP',
+        Creator: 'Ancient Halo Coffee',
       },
     });
     this.drawHeader();

@@ -301,10 +301,12 @@ export function ShipmentsPage() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { data: rows, isLoading } = useList<any[]>(['shipments'], '/shipments');
-  const { data: contracts } = useList<any[]>(['contracts'], '/contracts');
+  // A shipment ships against a commercial invoice, which carries the buyer,
+  // the destination and the document pack.
+  const { data: invoices } = useList<any[]>(['commercial-invoices'], '/commercial-invoices');
   const save = useOfflineSave([['shipments']], { url: '/shipments' });
   const [form, setForm] = useState<any>({
-    contractId: '',
+    commercialInvoiceId: '',
     date: new Date().toISOString().slice(0, 10),
     mode: 'Sea',
     port: 'Djibouti',
@@ -326,7 +328,7 @@ export function ShipmentsPage() {
         <div>
           <div className="font-medium">{r.code}</div>
           <div className="text-xs text-slate-400">
-            {r.contract?.buyer?.name ?? '—'} · {r.mode} · {r.port ?? ''}
+            {r.commercialInvoice?.buyer?.name ?? '—'} · {r.mode} · {r.port ?? ''}
             {r.commercialInvoice?.destinationCountryName
               ? ` → ${r.commercialInvoice.destinationCountryName}`
               : ''}
@@ -381,15 +383,20 @@ export function ShipmentsPage() {
       </Card>
       <Modal open={open} onClose={() => setOpen(false)} title="New Shipment">
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Contract">
-            <Select value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })}>
+          <Field label="Commercial invoice" hint="The invoice carries the buyer, destination and document pack">
+            <Select
+              value={form.commercialInvoiceId}
+              onChange={(e) => setForm({ ...form, commercialInvoiceId: e.target.value })}
+            >
               <option value="">—</option>
-              {contracts?.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.buyer?.name}
-                  {c.buyer?.country ? ` (${c.buyer.country})` : ''}
-                </option>
-              ))}
+              {(invoices ?? [])
+                .filter((i: any) => i.status !== 'Cancelled')
+                .map((i: any) => (
+                  <option key={i.id} value={i.id}>
+                    {i.code} — {i.buyer?.name}
+                    {i.destinationCountryName ? ` · ${i.destinationCountryName}` : ''}
+                  </option>
+                ))}
             </Select>
           </Field>
 

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 340" role="img" aria-label="Ancient Halo Coffee">
+  <title>Ancient Halo Coffee</title>
+  <!--
+    Ancient Halo Coffee mark: a five-petal coffee blossom with radiating
+    stamens, beside the wordmark. Colours are fixed rather than inherited so
+    the file drops into a header, a favicon or a PDF cover without restyling.
+  -->
+  <!-- Petals: five leaflets fanning from the centre -->
+  <g fill="none" stroke="#2a3f26" stroke-width="8" stroke-linejoin="round">
+    <path d="M208 188 C 190 122, 214 58, 258 46 C 300 86, 292 160, 252 194" />
+    <path d="M208 188 C 270 172, 330 190, 348 234 C 318 280, 246 282, 210 238" />
+    <path d="M208 188 C 246 226, 262 288, 236 326 C 182 320, 150 260, 166 210" />
+    <path d="M208 188 C 160 214, 96 216, 70 182 C 92 132, 156 124, 202 160" />
+    <path d="M208 188 C 188 148, 186 92, 214 58" />
+  </g>
+  <!-- Stamens: a starburst from the centre, each tipped with an anther -->
+  <g fill="none" stroke="#2a3f26" stroke-width="6" stroke-linecap="round">
+    <path d="M212 186 L 246 78" />
+    <path d="M212 186 L 330 150" />
+    <path d="M212 186 L 300 268" />
+    <path d="M212 186 L 150 280" />
+    <path d="M212 186 L 92 150" />
+    <path d="M212 186 L 224 116" />
+  </g>
+  <g fill="#2a3f26">
+    <circle cx="246" cy="78" r="9" />
+    <circle cx="330" cy="150" r="9" />
+    <circle cx="300" cy="268" r="9" />
+    <circle cx="150" cy="280" r="9" />
+    <circle cx="92" cy="150" r="9" />
+    <circle cx="224" cy="116" r="9" />
+    <circle cx="212" cy="186" r="14" />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="410" y="116" font-family="Georgia, 'Times New Roman', serif" font-size="54" fill="#c08a5a">Ancient</text>
+  <text x="404" y="236" font-family="Georgia, 'Times New Roman', serif" font-size="134" fill="#2a3f26">Halo</text>
+  <line x1="410" y1="270" x2="682" y2="270" stroke="#c08a5a" stroke-width="6" />
+  <text x="702" y="296" font-family="Georgia, 'Times New Roman', serif" font-size="54" fill="#c08a5a">Coffee</text>
+</svg>

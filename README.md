@@ -1,4 +1,4 @@
-# MADDA ERP
+# Ancient Halo Coffee
 
 Coffee Processing & Export Management System for **Ancient Halo Coffee Export**.
 

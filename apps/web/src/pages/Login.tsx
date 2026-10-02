@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Coffee, FlaskConical, Eye, EyeOff } from 'lucide-react';
+import { FlaskConical, Eye, EyeOff } from 'lucide-react';
 import { Button, Field, Input, Select } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { TEST_CREDENTIALS, testCredentialsEnabled } from '@/lib/test-credentials';
@@ -47,12 +47,12 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-copper-500 text-white">
-            <Coffee size={26} />
-          </div>
-          <h1 className="text-xl font-semibold text-slate-900">{t('app.name')}</h1>
-          <p className="text-sm text-slate-500">{t('app.subtitle')}</p>
+        <div className="mb-6 flex justify-center">
+          <img
+            src="/logo.svg"
+            alt={t('app.name')}
+            className="h-auto w-64 max-w-full"
+          />
         </div>
 
         <div className="card p-6">
@@ -115,7 +115,7 @@ export function LoginPage() {
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-400">
-          Ancient Halo Coffee Export · MADDA ERP
+          Ancient Halo Coffee Export
         </p>
       </div>
     </div>

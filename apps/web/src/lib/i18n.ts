@@ -2,7 +2,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const en = {
-  app: { name: 'MADDA', subtitle: 'Coffee ERP' },
+  app: { name: 'Ancient Halo Coffee', subtitle: 'Export Management' },
   nav: {
     main: 'Main Menu',
     dashboard: 'Dashboard',
@@ -97,7 +97,7 @@ const en = {
     email: 'Email',
     password: 'Password',
     welcome: 'Welcome back',
-    signInSubtitle: 'Sign in to MADDA ERP',
+    signInSubtitle: 'Sign in to Ancient Halo Coffee',
     invalid: 'Invalid email or password',
   },
   purchases: {
@@ -141,7 +141,7 @@ const en = {
 };
 
 const om = {
-  app: { name: 'MADDA', subtitle: 'ERP Buna' },
+  app: { name: 'Ancient Halo Coffee', subtitle: 'Bulchiinsa Ergaa' },
   nav: {
     main: 'Baafata Guddaa',
     dashboard: 'Daashboordii',
@@ -236,7 +236,7 @@ const om = {
     email: 'Imeelii',
     password: 'Jecha iccitii',
     welcome: 'Baga nagaan deebite',
-    signInSubtitle: 'MADDA ERP seeni',
+    signInSubtitle: 'Ancient Halo Coffee seeni',
     invalid: 'Imeelii yookaan jecha iccitii dogoggora',
   },
   purchases: {

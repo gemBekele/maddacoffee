@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
@@ -38,6 +38,115 @@ import { InfoRow, CustomerCard, SentEmails, ActivityFeed, CustomerHistory } from
 import { api } from '@/lib/api';
 import { downloadPdf, openPdf, invoiceDocPath, proformaDocPath } from '@/lib/download';
 import { formatMoney, formatKg } from '@madda/shared';
+
+/**
+ * Ship a commercial invoice.
+ *
+ * Creates the shipment against the invoice and navigates straight to it, so the
+ * invoice is the single place a consignment is dispatched from. The form is
+ * deliberately empty of commercial detail: the buyer, destination and document
+ * pack all come from the invoice, and the request only needs to record what
+ * physically moves.
+ */
+function CreateShipmentButton({
+  invoiceId,
+  invoiceCode,
+  onCreated,
+}: {
+  invoiceId: string;
+  invoiceCode: string;
+  onCreated: (shipmentId: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    mode: 'Sea',
+    port: 'Djibouti',
+    containerNo: '',
+  });
+  const [error, setError] = useState('');
+
+  const create = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post('/shipments', {
+          commercialInvoiceId: invoiceId,
+          date: new Date(form.date).toISOString(),
+          mode: form.mode,
+          port: form.port || null,
+          containerNo: form.containerNo || null,
+        })
+      ).data,
+    onSuccess: (shipment: any) => {
+      qc.invalidateQueries({ queryKey: ['commercial-invoice', `/commercial-invoices/${invoiceId}`] });
+      qc.invalidateQueries({ queryKey: ['shipments'] });
+      setOpen(false);
+      onCreated(shipment.id);
+    },
+    onError: (e: any) => {
+      setError(e?.response?.data?.message ?? 'Could not create the shipment. Try again.');
+    },
+  });
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Truck size={15} /> Create shipment
+      </Button>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={`Ship ${invoiceCode}`}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError('');
+            create.mutate();
+          }}
+          className="space-y-3"
+        >
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            The shipment takes its buyer, destination and export documents from invoice{' '}
+            <span className="font-medium text-slate-700">{invoiceCode}</span>. This form records only the
+            physical movement.
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Dispatch date">
+              <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+            </Field>
+            <Field label="Mode">
+              <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+                <option>Sea</option>
+                <option>Air</option>
+              </Select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Port / airport">
+              <Input value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} placeholder="Djibouti" />
+            </Field>
+            <Field label="Container no." hint="Optional">
+              <Input value={form.containerNo} onChange={(e) => setForm({ ...form, containerNo: e.target.value })} />
+            </Field>
+          </div>
+
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Truck size={15} />}
+              Create shipment
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
+  );
+}
 
 function useDetail(key: string, url: string) {
   return useQuery({ queryKey: [key, url], queryFn: async () => (await api.get(url)).data });
@@ -603,6 +712,7 @@ export function CommercialDetailPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: inv, isLoading } = useDetail('commercial-invoice', `/commercial-invoices/${id}`);
+  const navigate = useNavigate();
   const act = async (fn: () => Promise<any>) => {
     await fn();
     qc.invalidateQueries({ queryKey: ['commercial-invoice', `/commercial-invoices/${id}`] });
@@ -612,6 +722,11 @@ export function CommercialDetailPage() {
   };
   if (isLoading || !inv) return <div className="p-6 text-sm text-slate-400">{t('common.loading')}</div>;
   const total = inv.lines?.reduce((a: number, l: any) => a + Number(l.amount), 0) ?? 0;
+  // A consignment ships against this invoice, so the shipment is reachable from
+  // here. One invoice can have more than one shipment, so this links to the
+  // first and points at the full list when there is more than one.
+  const shipments: any[] = inv.shipments ?? [];
+  const primaryShipment = shipments[0];
   const columns = [
     { key: 'description', header: 'Description', primary: true },
     { key: 'quantityKg', header: 'Qty', render: (r: any) => formatKg(r.quantityKg) },
@@ -633,6 +748,22 @@ export function CommercialDetailPage() {
               {inv.status !== 'Paid' && <Button variant="ghost" onClick={() => act(() => api.patch(`/commercial-invoices/${id}/status`, { status: 'Paid' }))}><CheckCircle2 size={15} /> Mark Paid</Button>}
               <Button variant="ghost" onClick={() => openPdf(invoiceDocPath(String(id), 'Commercial Invoice', true))}><Printer size={15} /> Print Invoice</Button>
               <Button variant="ghost" onClick={() => downloadPdf(invoiceDocPath(String(id), 'Commercial Invoice'), `${inv.code}-commercial-invoice.pdf`)}><Download size={15} /> PDF</Button>
+              {/* Ship directly from the invoice: it carries the buyer, the
+                  destination and the document pack the shipment reads from. */}
+              {primaryShipment ? (
+                <Link to={`/shipments/${primaryShipment.id}`}>
+                  <Button variant="ghost">
+                    <Truck size={15} />
+                    {shipments.length > 1 ? `Shipments (${shipments.length})` : 'Open shipment'}
+                  </Button>
+                </Link>
+              ) : (
+                <CreateShipmentButton
+                  invoiceId={String(id)}
+                  invoiceCode={inv.code}
+                  onCreated={(shipmentId) => navigate(`/shipments/${shipmentId}`)}
+                />
+              )}
             </div>
           </Card>
           <Card className="p-5">
@@ -683,7 +814,8 @@ export function ShipmentDetailPage() {
 
   if (isLoading || !sh) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
   const stepIdx = Math.max(0, TRACK_STEPS.indexOf(sh.trackingStatus));
-  const buyer = sh.contract?.buyer;
+  // Buyer and destination come from the linked commercial invoice.
+  const buyer = sh.commercialInvoice?.buyer;
 
   return (
     <div>

@@ -595,7 +595,6 @@ model SalesContract {
 
   buyer    Buyer            @relation(fields: [buyerId], references: [id])
   proforma ProformaInvoice? @relation(fields: [proformaId], references: [id])
-  shipment Shipment?
   commercial CommercialInvoice?
 
   @@map("sales_contracts")
@@ -633,6 +632,7 @@ model CommercialInvoice {
   contract SalesContract?      @relation(fields: [contractId], references: [id])
   lines    CommercialInvoiceLine[]
   documents ExportDocument[]
+  shipments Shipment[]
 
   @@index([destinationCountryCode])
   @@map("commercial_invoices")
@@ -656,7 +656,11 @@ model Shipment {
   id          String   @id @default(cuid())
   code        String   @unique
   trackingNo  String?
-  contractId  String?  @unique
+  // A consignment ships against a commercial invoice, not a contract. The
+  // invoice is what customs, the bank and the buyer key on, and it is where the
+  // destination and document pack live, so linking directly removes a hop that
+  // existed only because the invoice used to be reached through the contract.
+  commercialInvoiceId String? @unique
   date        DateTime?
   mode        String   @default("Sea") // Sea | Air
   port        String?  @default("Djibouti")
@@ -677,7 +681,7 @@ model Shipment {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  contract SalesContract? @relation(fields: [contractId], references: [id])
+  commercialInvoice CommercialInvoice? @relation(fields: [commercialInvoiceId], references: [id])
   documents ExportDocument[]
   events    ShipmentEvent[]
   eudr      EudrStatement?

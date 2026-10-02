@@ -55,7 +55,7 @@ const EUDR_SOURCE =
 /**
  * The markets we have verified rules for. ISO-3166 alpha-2.
  *
- * Only markets MADDA actually sells into need a row: the resolver falls back to
+ * Only markets Ancient Halo Coffee actually sells into need a row: the resolver falls back to
  * universal (origin-side) requirements for any destination without a profile.
  */
 export const COUNTRY_PROFILES: readonly CountryProfileSeed[] = [

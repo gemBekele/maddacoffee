@@ -158,7 +158,10 @@ export const contractSchema = z.object({
 export type ContractInput = z.infer<typeof contractSchema>;
 
 export const shipmentSchema = z.object({
-  contractId: z.string().optional().nullable(),
+  // A consignment ships against a commercial invoice. The invoice carries the
+  // buyer, the destination and the document pack, so it is the link that
+  // matters rather than the contract behind it.
+  commercialInvoiceId: z.string().optional().nullable(),
   date: z.coerce.date().optional().nullable(),
   mode: z.enum(['Sea', 'Air']).default('Sea'),
   // Destination is a commercial term of the invoice, not the shipment. It is
