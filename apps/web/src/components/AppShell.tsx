@@ -43,7 +43,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { to: '/', key: 'dashboard', icon: <LayoutDashboard size={18} />, group: 'main' },
+  { to: '/', key: 'dashboard', icon: <LayoutDashboard size={18} />, perm: 'dashboard.read', group: 'main' },
   { to: '/purchases', key: 'purchases', icon: <ShoppingCart size={18} />, perm: 'purchase.read', group: 'main' },
   { to: '/processing', key: 'processing', icon: <Factory size={18} />, perm: 'processing.read', group: 'main' },
   { to: '/inventory', key: 'inventory', icon: <Package size={18} />, perm: 'inventory.read', group: 'main' },
@@ -136,13 +136,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-4">
-          {/* The blossom mark alone when collapsed, with the wordmark beside it
-              when there is room. */}
-          <img src="/favicon.svg" alt="" className="h-9 w-9 shrink-0 rounded-lg" />
           {!collapsed && (
-            <div className="leading-tight">
-              <div className="text-sm font-semibold">{t('app.name')}</div>
-              <div className="text-[11px] text-slate-400">{t('app.subtitle')}</div>
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-sm font-semibold">{t('app.name')}</div>
+              <div className="truncate text-[11px] text-slate-400">{t('app.subtitle')}</div>
             </div>
           )}
         </div>
@@ -163,8 +160,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="absolute inset-y-0 left-0 w-72 overflow-y-auto bg-white p-4">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
-                <span className="text-sm font-semibold">{t('app.name')}</span>
+                <span className="truncate text-sm font-semibold">{t('app.name')}</span>
               </div>
               <button onClick={() => setDrawer(false)} className="p-1 text-slate-400"><X size={18} /></button>
             </div>

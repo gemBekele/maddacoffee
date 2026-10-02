@@ -47,12 +47,9 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
-          <img
-            src="/logo.svg"
-            alt={t('app.name')}
-            className="h-auto w-64 max-w-full"
-          />
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{t('app.name')}</h1>
+          <p className="mt-1 text-xs text-slate-500">{t('app.subtitle')}</p>
         </div>
 
         <div className="card p-6">
