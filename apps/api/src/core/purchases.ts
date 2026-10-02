@@ -6,6 +6,7 @@ import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decora
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { cherryPurchaseSchema, type CherryPurchaseInput } from '@madda/shared';
 import { ApprovalService } from '../common/approval.service';
+import { stationFilter, assertStationAccess } from '../common/station-scope';
 
 @Controller('purchases')
 export class PurchasesController {
@@ -18,9 +19,13 @@ export class PurchasesController {
 
   @Get()
   @RequirePermissions('purchase.read')
-  list(@Query('stationId') stationId?: string, @Query('from') from?: string, @Query('to') to?: string) {
+  list(@Query('stationId') stationId?: string, @Query('from') from?: string, @Query('to') to?: string, @CurrentUser() user?: AuthUser) {
     return this.prisma.cherryPurchase.findMany({
       where: {
+        // Station scoping is applied first and cannot be widened by the query
+        // string: a scoped user asking for another station still only sees
+        // their own, because both conditions must hold.
+        ...stationFilter(user!),
         ...(stationId ? { stationId } : {}),
         ...(from || to
           ? { date: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
@@ -35,6 +40,8 @@ export class PurchasesController {
   @Post()
   @RequirePermissions('purchase.write')
   async create(@Body(new ZodValidationPipe(cherryPurchaseSchema)) body: CherryPurchaseInput, @CurrentUser() actor: AuthUser) {
+    // A scoped user may only record against their own station.
+    assertStationAccess(actor, body.stationId);
     const code = await this.numbering.next('purchase', body.date);
     // Receipt numbers are assigned by the system so every purchase gets one and
     // none are duplicated. A value supplied by the client is honoured, because

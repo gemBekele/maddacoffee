@@ -55,6 +55,26 @@ function Protected({ children }: { children: React.ReactNode }) {
 
 const P = (el: React.ReactNode) => <Protected><Suspense fallback={<Loading />}>{el}</Suspense></Protected>;
 
+/**
+ * Landing page.
+ *
+ * The dashboard is a management view. Anyone without it lands on the first
+ * screen they can actually use rather than being bounced to a forbidden page,
+ * which is what a plain redirect to "/" would do for a station user.
+ */
+function Home() {
+  const { user, loading } = useAuth();
+  if (loading) return <Loading />;
+  const perms = user?.permissions ?? [];
+  if (perms.includes('dashboard.read')) return <DashboardPage />;
+  if (perms.includes('purchase.read')) return <Navigate to="/purchases" replace />;
+  if (perms.includes('processing.read')) return <Navigate to="/processing" replace />;
+  if (perms.includes('inventory.read')) return <Navigate to="/inventory" replace />;
+  if (perms.includes('shipment.read')) return <Navigate to="/shipments" replace />;
+  if (perms.includes('expense.read')) return <Navigate to="/expenses" replace />;
+  return <Navigate to="/settings" replace />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={qc}>
@@ -62,7 +82,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={P(<DashboardPage />)} />
+            <Route path="/" element={P(<Home />)} />
             <Route path="/purchases" element={P(<PurchasesPage />)} />
             <Route path="/processing" element={P(<ProcessingPage />)} />
             <Route path="/inventory" element={P(<InventoryPage />)} />

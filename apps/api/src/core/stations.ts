@@ -5,6 +5,7 @@ import { NumberingService } from '../common/numbering.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { stationSchema, type StationInput, formatLotId } from '@madda/shared';
+import { stationFilter } from '../common/station-scope';
 
 @Controller('stations')
 export class StationsController {
@@ -12,8 +13,14 @@ export class StationsController {
 
   @Get()
   @RequirePermissions('station.read')
-  list() {
-    return this.prisma.station.findMany({ orderBy: { code: 'asc' } });
+  list(@CurrentUser() user?: AuthUser) {
+    // Scoped users see only their own stations, so the picker cannot offer one
+    // they have no access to.
+    const reach = stationFilter(user!);
+    return this.prisma.station.findMany({
+      where: reach.stationId ? { id: reach.stationId as any } : {},
+      orderBy: { code: 'asc' },
+    });
   }
 
   @Get(':id')

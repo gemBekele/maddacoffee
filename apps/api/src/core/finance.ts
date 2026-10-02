@@ -6,6 +6,7 @@ import { ApprovalService } from '../common/approval.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { expenseSchema, type ExpenseInput } from '@madda/shared';
+import { stationFilter, assertStationAccess } from '../common/station-scope';
 
 @Controller('expenses')
 export class ExpensesController {
@@ -18,9 +19,9 @@ export class ExpensesController {
 
   @Get()
   @RequirePermissions('expense.read')
-  list(@Query('stationId') stationId?: string) {
+  list(@Query('stationId') stationId?: string, @CurrentUser() user?: AuthUser) {
     return this.prisma.expense.findMany({
-      where: stationId ? { stationId } : {},
+      where: { ...stationFilter(user!), ...(stationId ? { stationId } : {}) },
       include: { station: true },
       orderBy: { date: 'desc' },
       take: 500,
@@ -30,6 +31,7 @@ export class ExpensesController {
   @Post()
   @RequirePermissions('expense.write')
   async create(@Body(new ZodValidationPipe(expenseSchema)) body: ExpenseInput, @CurrentUser() actor: AuthUser) {
+    assertStationAccess(actor, body.stationId);
     const code = await this.numbering.next('expense', body.date);
     const needs = await this.approval.needed('expense', Number(body.amount));
     const expense = await this.prisma.expense.create({

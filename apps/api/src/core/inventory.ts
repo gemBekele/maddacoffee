@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
+import { stationFilter } from '../common/station-scope';
 
 @Controller('inventory')
 export class InventoryController {
@@ -10,9 +11,9 @@ export class InventoryController {
 
   @Get()
   @RequirePermissions('inventory.read')
-  list(@Query('stationId') stationId?: string) {
+  list(@Query('stationId') stationId?: string, @CurrentUser() user?: AuthUser) {
     return this.prisma.inventoryItem.findMany({
-      where: stationId ? { stationId } : {},
+      where: { ...stationFilter(user!), ...(stationId ? { stationId } : {}) },
       include: { lot: true },
       orderBy: { updatedAt: 'desc' },
       take: 500,
@@ -21,9 +22,9 @@ export class InventoryController {
 
   @Get('lots')
   @RequirePermissions('inventory.read')
-  lots(@Query('stationId') stationId?: string) {
+  lots(@Query('stationId') stationId?: string, @CurrentUser() user?: AuthUser) {
     return this.prisma.lot.findMany({
-      where: stationId ? { stationId } : {},
+      where: { ...stationFilter(user!), ...(stationId ? { stationId } : {}) },
       include: { station: true, inventory: true },
       orderBy: { createdAt: 'desc' },
       take: 500,

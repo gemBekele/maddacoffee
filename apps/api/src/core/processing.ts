@@ -5,6 +5,7 @@ import { NumberingService } from '../common/numbering.service';
 import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { processingBatchSchema, type ProcessingBatchInput, formatLotId } from '@madda/shared';
+import { stationFilter, assertStationAccess } from '../common/station-scope';
 
 @Controller('processing')
 export class ProcessingController {
@@ -12,9 +13,9 @@ export class ProcessingController {
 
   @Get()
   @RequirePermissions('processing.read')
-  list(@Query('stationId') stationId?: string) {
+  list(@Query('stationId') stationId?: string, @CurrentUser() user?: AuthUser) {
     return this.prisma.processingBatch.findMany({
-      where: stationId ? { stationId } : {},
+      where: { ...stationFilter(user!), ...(stationId ? { stationId } : {}) },
       include: { station: true, lot: true },
       orderBy: { date: 'desc' },
       take: 500,
@@ -24,6 +25,7 @@ export class ProcessingController {
   @Post()
   @RequirePermissions('processing.write')
   async create(@Body(new ZodValidationPipe(processingBatchSchema)) body: ProcessingBatchInput, @CurrentUser() actor: AuthUser) {
+    assertStationAccess(actor, body.stationId);
     const code = await this.numbering.next('batch', body.date);
     let lotId = body.lotId || null;
     if (!lotId) {

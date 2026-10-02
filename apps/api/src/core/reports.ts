@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { RequirePermissions } from '../common/decorators';
+import { RequirePermissions, CurrentUser, type AuthUser } from '../common/decorators';
+import { stationFilter } from '../common/station-scope';
 
 @Controller('reports')
 export class ReportsController {
@@ -8,8 +9,12 @@ export class ReportsController {
 
   @Get('purchases')
   @RequirePermissions('report.read')
-  async purchases() {
-    const rows = await this.prisma.cherryPurchase.findMany({ include: { supplier: true, station: true }, orderBy: { date: 'desc' } });
+  async purchases(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.cherryPurchase.findMany({
+      where: stationFilter(user),
+      include: { supplier: true, station: true },
+      orderBy: { date: 'desc' },
+    });
     return rows.map((r) => ({
       code: r.code,
       date: r.date,
@@ -25,8 +30,12 @@ export class ReportsController {
 
   @Get('processing')
   @RequirePermissions('report.read')
-  async processing() {
-    const rows = await this.prisma.processingBatch.findMany({ include: { station: true }, orderBy: { date: 'desc' } });
+  async processing(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.processingBatch.findMany({
+      where: stationFilter(user),
+      include: { station: true },
+      orderBy: { date: 'desc' },
+    });
     return rows.map((r) => {
       const input = Number(r.cherryInputKg);
       const out = Number(r.greenOutputKg ?? 0);
@@ -47,8 +56,8 @@ export class ReportsController {
 
   @Get('inventory-valuation')
   @RequirePermissions('report.read')
-  async inventoryValuation() {
-    const items = await this.prisma.inventoryItem.findMany({ include: { lot: true } });
+  async inventoryValuation(@CurrentUser() user: AuthUser) {
+    const items = await this.prisma.inventoryItem.findMany({ where: stationFilter(user), include: { lot: true } });
     const rows = items.map((i) => ({
       lotId: i.lotId,
       process: i.process,
@@ -80,10 +89,16 @@ export class ReportsController {
 
   @Get('aging')
   @RequirePermissions('report.read')
-  async aging() {
+  async aging(@CurrentUser() user: AuthUser) {
     const now = Date.now();
-    const purchases = await this.prisma.cherryPurchase.findMany({ where: { paymentStatus: { in: ['Pending', 'Partial'] } }, include: { supplier: true } });
-    const expenses = await this.prisma.expense.findMany({ where: { paymentStatus: { in: ['Pending', 'Partial'] } }, include: { station: true } });
+    const purchases = await this.prisma.cherryPurchase.findMany({
+      where: { ...stationFilter(user), paymentStatus: { in: ['Pending', 'Partial'] } },
+      include: { supplier: true },
+    });
+    const expenses = await this.prisma.expense.findMany({
+      where: { ...stationFilter(user), paymentStatus: { in: ['Pending', 'Partial'] } },
+      include: { station: true },
+    });
     const bucket = (d: Date) => {
       const days = Math.floor((now - new Date(d).getTime()) / 86400000);
       if (days <= 30) return '0-30';

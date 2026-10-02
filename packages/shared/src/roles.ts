@@ -112,8 +112,9 @@ const FINANCE: Permission[] = [
   'report.read', 'audit.read',
   'employee.read', 'payroll.read', 'payroll.approve',
 ];
+// Operational role. No dashboard: it is a management view, and a station
+// manager works from the station's own lists, scoped to their station below.
 const STATION: Permission[] = [
-  'dashboard.read',
   'station.read',
   'supplier.read',
   'purchase.read', 'purchase.write',
@@ -145,15 +146,14 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
   procurement_manager: PROCUREMENT,
   station_manager: STATION,
-  cherry_receiver: ['dashboard.read', 'station.read', 'supplier.read', 'purchase.read', 'purchase.write'],
-  processing_supervisor: ['dashboard.read', 'processing.read', 'processing.write', 'inventory.read', 'quality.read'],
+  cherry_receiver: ['station.read', 'supplier.read', 'purchase.read', 'purchase.write'],
+  processing_supervisor: ['processing.read', 'processing.write', 'inventory.read', 'quality.read'],
   qc_officer: [
-    'dashboard.read',
     'quality.read', 'quality.write',
     'processing.read', 'inventory.read',
     'traceability.read', 'traceability.write', 'compliance.read',
   ],
-  warehouse_officer: ['dashboard.read', 'inventory.read', 'inventory.write', 'report.read'],
+  warehouse_officer: ['inventory.read', 'inventory.write', 'report.read'],
   logistics_officer: [
     'dashboard.read',
     'shipment.read', 'shipment.write',
@@ -201,3 +201,42 @@ export const ROLE_LABELS: Record<Role, string> = {
   hr_admin: 'HR / Admin',
   auditor: 'Auditor',
 };
+
+// ───────────────────────────── Record scoping ─────────────────────────────
+
+/**
+ * Roles whose visibility is limited to the stations they are assigned to.
+ *
+ * These are the people who work at a station. Everyone else — management,
+ * finance, sales, audit — needs the whole company to do their job, so scoping
+ * is opt-in by role rather than a default that would silently hide data from
+ * the roles that legitimately need it.
+ */
+export const STATION_SCOPED_ROLES: Role[] = [
+  'station_manager',
+  'cherry_receiver',
+  'processing_supervisor',
+  'warehouse_officer',
+];
+
+/**
+ * The stations a user may see, or `null` meaning "no station restriction".
+ *
+ * Returning `null` rather than an empty array matters: an empty array would
+ * mean "see nothing", which is the opposite of what an unscoped role gets.
+ * Callers must treat `null` as unrestricted.
+ *
+ * A scoped role with no stations assigned gets an empty array, which correctly
+ * shows them nothing. That is a configuration error on the user's record, and
+ * failing closed is the safe direction.
+ */
+export function visibleStationIds(roles: Role[], assigned: string[]): string[] | null {
+  const scoped = roles.some((r) => STATION_SCOPED_ROLES.includes(r));
+  if (!scoped) return null;
+  return assigned ?? [];
+}
+
+/** Whether a user's view is restricted to specific stations. */
+export function isStationScoped(roles: Role[]): boolean {
+  return roles.some((r) => STATION_SCOPED_ROLES.includes(r));
+}
